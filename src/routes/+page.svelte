@@ -51,6 +51,23 @@
 				</div>
 				<div class="ml-auto text-gray-300 group-hover:text-gray-500 text-xl">→</div>
 			</a>
+
+			<!-- SuperLingo -->
+			<a
+				href="/superlingo"
+				class="group flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-200
+					hover:border-purple-500 hover:bg-purple-50
+					transition-all duration-200 cursor-pointer"
+			>
+				<div class="w-14 h-14 rounded-xl bg-purple-700 flex items-center justify-center text-white text-2xl font-black shrink-0">
+					SL
+				</div>
+				<div>
+					<div class="font-bold text-lg text-gray-900">{t.superLingoTitle}</div>
+					<div class="text-sm text-gray-500">{t.superLingoDesc}</div>
+				</div>
+				<div class="ml-auto text-gray-300 group-hover:text-gray-500 text-xl">→</div>
+			</a>
 		</div>
 
 		<!-- Auth link -->

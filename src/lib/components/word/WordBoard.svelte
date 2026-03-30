@@ -6,13 +6,24 @@
 		gameState: GameState;
 		currentInput?: string[];
 		firstLetterLocked?: string;
+		// Extra locked positions shown on the active (current) row only
+		lockedPositions?: Record<number, string>;
+		// Total rows to show (including bonus row). Defaults to gameState.maxAttempts
+		totalRows?: number;
+		shakeRow?: boolean;
+		/** Index of the row currently being revealed (flip animation) */
+		revealingRow?: number;
+		/** Position of the cursor within the current row (-1 = none) */
+		activeInputIndex?: number;
 	}
 
-	let { gameState, currentInput = [], firstLetterLocked }: Props = $props();
+	let { gameState, currentInput = [], firstLetterLocked, lockedPositions = {}, totalRows, shakeRow = false, revealingRow = -1, activeInputIndex = -1 }: Props = $props();
+
+	const rowCount = $derived(totalRows ?? gameState.maxAttempts);
 </script>
 
 <div class="flex flex-col gap-1">
-	{#each Array.from({ length: gameState.maxAttempts }, (_, i) => i) as rowIndex}
+	{#each Array.from({ length: rowCount }, (_, i) => i) as rowIndex}
 		{@const guess = gameState.guesses[rowIndex]}
 		{@const isCurrentRow = rowIndex === gameState.guesses.length && gameState.status === 'playing'}
 		<WordRow
@@ -20,7 +31,11 @@
 			{guess}
 			{currentInput}
 			{isCurrentRow}
-			{firstLetterLocked}
+			firstLetterLocked={rowIndex === 0 ? firstLetterLocked : undefined}
+			lockedPositions={isCurrentRow ? lockedPositions : {}}
+			shake={isCurrentRow && shakeRow}
+			animateReveal={rowIndex === revealingRow}
+			cursorIndex={isCurrentRow ? activeInputIndex : -1}
 		/>
 	{/each}
 </div>

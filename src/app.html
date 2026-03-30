@@ -1,24 +1,21 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="theme-color" content="#111111" />
-		<meta name="mobile-web-app-capable" content="yes" />
+
+		<link rel="icon" href="%sveltekit.assets%/favicon.ico" />
+
+		<!-- iOS PWA Support -->
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/icon-192x192.png" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 		<meta name="apple-mobile-web-app-title" content="Palingo" />
-		<link rel="manifest" href="/manifest.json" />
+
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
 		<div style="display: contents">%sveltekit.body%</div>
-		<script>
-			if ('serviceWorker' in navigator) {
-				window.addEventListener('load', () => {
-					navigator.serviceWorker.register('/sw.js');
-				});
-			}
-		</script>
-	</body>
+</body>
 </html>

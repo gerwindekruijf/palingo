@@ -2,6 +2,8 @@ import type { GameState } from './word-engine';
 import { createGameState } from './word-engine';
 
 export const ROUNDS_PER_GAME = 5;
+export const MAX_ATTEMPTS = 5; // 5 regular attempts, then 1 bonus
+export const TIMER_SECONDS = 30;
 
 export interface LingoRoundState extends GameState {
 	firstLetter: string;
@@ -24,7 +26,7 @@ export interface MarkedNumber {
 	source: MarkSource;
 }
 
-export function createLingoRound(word: string, maxAttempts = 6): LingoRoundState {
+export function createLingoRound(word: string, maxAttempts = MAX_ATTEMPTS): LingoRoundState {
 	return {
 		...createGameState(word.length, maxAttempts),
 		firstLetter: word[0],
@@ -117,12 +119,81 @@ export function checkBingo(card: number[][], marked: MarkedNumber[]): BingoResul
 	return false;
 }
 
+// ─── SuperLingo ───────────────────────────────────────────────────────────────
+
+/**
+ * A letter ball for SuperLingo.
+ * letters: '' (empty/blank), or 1-2 letter string placed in the puzzle word.
+ * positions: which indices in the puzzle word this ball reveals.
+ */
+export interface LetterBall {
+	id: number;
+	letters: string; // '' | single char | two chars
+	positions: number[]; // indices into puzzleWord
+	picked: boolean;
+}
+
+/**
+ * Generate 15 letter balls from a puzzle word (12-13 chars).
+ * Distribution: (len-2) single-letter balls + 1 double-letter ball + 2 empty balls = 15 total.
+ * Picking all non-empty balls reveals every position in the puzzle word exactly once.
+ */
+export function generateLetterBalls(puzzleWord: string): LetterBall[] {
+	const len = puzzleWord.length; // 12 or 13
+	// Shuffle all position indices so assignment is random
+	const positions = shuffle(Array.from({ length: len }, (_, i) => i));
+
+	const balls: LetterBall[] = [];
+	const singleCount = len - 2; // 10 for 12-char, 11 for 13-char
+
+	// (len-2) single-letter balls
+	for (let i = 0; i < singleCount; i++) {
+		balls.push({
+			id: i,
+			letters: puzzleWord[positions[i]],
+			positions: [positions[i]],
+			picked: false
+		});
+	}
+	// 1 double-letter ball covering the last 2 positions
+	balls.push({
+		id: singleCount,
+		letters: puzzleWord[positions[singleCount]] + puzzleWord[positions[singleCount + 1]],
+		positions: [positions[singleCount], positions[singleCount + 1]],
+		picked: false
+	});
+	// 2 empty balls
+	balls.push({ id: singleCount + 1, letters: '', positions: [], picked: false });
+	balls.push({ id: singleCount + 2, letters: '', positions: [], picked: false });
+
+	// Shuffle order and re-assign sequential ids
+	return shuffle(balls).map((b, i) => ({ ...b, id: i }));
+}
+
+/**
+ * Build the revealed state of a puzzle word given which balls have been picked.
+ * Returns an array of { letter | null } — null means not yet revealed.
+ */
+export function buildRevealedPuzzle(puzzleWord: string, balls: LetterBall[]): (string | null)[] {
+	const revealed: (string | null)[] = Array(puzzleWord.length).fill(null);
+	for (const ball of balls) {
+		if (ball.picked) {
+			for (const pos of ball.positions) {
+				revealed[pos] = puzzleWord[pos];
+			}
+		}
+	}
+	return revealed;
+}
+
+// ─── Shared helpers ───────────────────────────────────────────────────────────
+
 // Helpers
 function range(from: number, to: number): number[] {
 	return Array.from({ length: to - from + 1 }, (_, i) => from + i);
 }
 
-function shuffle<T>(arr: T[]): T[] {
+export function shuffle<T>(arr: T[]): T[] {
 	const a = [...arr];
 	for (let i = a.length - 1; i > 0; i--) {
 		const j = Math.floor(Math.random() * (i + 1));
