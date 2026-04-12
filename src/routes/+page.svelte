@@ -5,7 +5,7 @@
 	const t = $derived(langStore.t.home);
 </script>
 
-<div class="min-h-screen flex flex-col items-center justify-center bg-white px-6 py-12">
+<div class="min-h-screen flex flex-col items-center justify-center bg-bg-home px-6 py-12">
 	<div class="max-w-sm w-full flex flex-col items-center gap-10">
 		<!-- Logo / Title -->
 		<div class="text-center">
@@ -21,7 +21,7 @@
 			<!-- Palabra del Día -->
 			<a
 				href="/palabra-del-dia"
-				class="group flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-200
+				class="group flex items-center gap-4 p-5 rounded-2xl border-2 border-transparent
 					hover:border-tile-correct hover:bg-green-50
 					transition-all duration-200 cursor-pointer"
 			>
@@ -38,11 +38,11 @@
 			<!-- Lingo -->
 			<a
 				href="/lingo"
-				class="group flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-200
-					hover:border-red-500 hover:bg-red-50
+				class="group flex items-center gap-4 p-5 rounded-2xl border-2 border-transparent
+					hover:border-blue-500 hover:bg-blue-50
 					transition-all duration-200 cursor-pointer"
 			>
-				<div class="w-14 h-14 rounded-xl bg-red-600 flex items-center justify-center text-white text-2xl font-black shrink-0">
+				<div class="w-14 h-14 rounded-xl bg-blue-600 flex items-center justify-center text-white text-2xl font-black shrink-0">
 					L
 				</div>
 				<div>
@@ -55,7 +55,7 @@
 			<!-- SuperLingo -->
 			<a
 				href="/superlingo"
-				class="group flex items-center gap-4 p-5 rounded-2xl border-2 border-gray-200
+				class="group flex items-center gap-4 p-5 rounded-2xl border-2 border-transparent
 					hover:border-purple-500 hover:bg-purple-50
 					transition-all duration-200 cursor-pointer"
 			>

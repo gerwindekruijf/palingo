@@ -15,11 +15,11 @@ export const translations = {
 			title: 'PALINGO',
 			subtitle: 'Juegos de palabras en español',
 			palabraTitle: 'Palabra del Día',
-			palabraDesc: 'Adivina la palabra en 6 intentos · 4–7 letras',
+			palabraDesc: 'Adivina la palabra en 6 intentos · 4-7 letras',
 			lingoTitle: 'Lingo',
 			lingoDesc: 'Primera letra visible · 30 segundos · Bingo',
 			superLingoTitle: 'SuperLingo',
-			superLingoDesc: 'Palabras + bolas con letras · Adivina el puzzelwoord',
+			superLingoDesc: 'Palabras + bolas con letras · Adivina la palabra oculta',
 			loginNudge: 'Inicia sesión',
 			loginNudgeSuffix: 'para guardar tu progreso'
 		},
@@ -39,6 +39,7 @@ export const translations = {
 		// Palabra del Día
 		palabra: {
 			title: 'Palabra del Día',
+			subtitle: (n: number) => `Adivina la palabra de ${n} letras`,
 			nextWord: 'Siguiente palabra →',
 			loginNudge: 'Inicia sesión para guardar tu racha',
 			statsWins: 'Ganadas',
@@ -99,9 +100,9 @@ export const translations = {
 			messageTimeout: '¡Tiempo agotado!',
 			messageBonusRound: '¡Ronda bonus! Una letra extra de pista',
 			bonusRound: 'BONUS',
-			puzzleWord: 'Puzzelwoord',
-			puzzleWordGuess: 'Adivinar puzzelwoord',
-			puzzleWordCorrect: '¡Puzzelwoord correcto! ¡Habéis ganado!',
+			puzzleWord: 'Palabra oculta',
+			puzzleWordGuess: 'Adivinar palabra oculta',
+			puzzleWordCorrect: '¡Palabra oculta correcta! ¡Habéis ganado!',
 			puzzleWordWrong: 'Incorrecto — seguid jugando',
 			ballEmpty: 'Bola vacía',
 			newGame: 'Nueva partida',
@@ -175,7 +176,7 @@ export const translations = {
 			title: 'PALINGO',
 			subtitle: 'Spanish word games',
 			palabraTitle: 'Word of the Day',
-			palabraDesc: 'Guess the word in 6 tries · 4–7 letters',
+			palabraDesc: 'Guess the word in 6 tries · 4-7 letters',
 			lingoTitle: 'Lingo',
 			lingoDesc: 'First letter shown · 30 seconds · Bingo',
 			superLingoTitle: 'SuperLingo',
@@ -197,6 +198,7 @@ export const translations = {
 
 		palabra: {
 			title: 'Word of the Day',
+			subtitle: (n: number) => `Guess the ${n}-letter word`,
 			nextWord: 'Next word →',
 			loginNudge: 'Sign in to save your streak',
 			statsWins: 'Won',

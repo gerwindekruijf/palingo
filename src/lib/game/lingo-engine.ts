@@ -1,9 +1,6 @@
 import type { GameState } from './word-engine';
 import { createGameState } from './word-engine';
-
-export const ROUNDS_PER_GAME = 5;
-export const MAX_ATTEMPTS = 5; // 5 regular attempts, then 1 bonus
-export const TIMER_SECONDS = 30;
+export { ROUNDS_PER_GAME, TIMER_SECONDS } from '$lib/config/constants';
 
 export interface LingoRoundState extends GameState {
 	firstLetter: string;
@@ -26,7 +23,7 @@ export interface MarkedNumber {
 	source: MarkSource;
 }
 
-export function createLingoRound(word: string, maxAttempts = MAX_ATTEMPTS): LingoRoundState {
+export function createLingoRound(word: string, maxAttempts: number): LingoRoundState {
 	return {
 		...createGameState(word.length, maxAttempts),
 		firstLetter: word[0],

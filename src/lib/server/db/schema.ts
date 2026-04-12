@@ -1,5 +1,5 @@
 import { boolean, index, integer, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
-import { user } from './auth.schema';
+import { user } from '$lib/server/auth/schema';
 
 export const words = pgTable(
 	'words',
@@ -32,4 +32,4 @@ export const scores = pgTable(
 	(t) => [index('scores_user_game_idx').on(t.userId, t.game, t.wordLength)]
 );
 
-export * from './auth.schema';
+export * from '$lib/server/auth/schema';

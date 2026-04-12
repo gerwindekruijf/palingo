@@ -68,14 +68,3 @@
 		</span>
 	</div>
 </div>
-
-<style>
-	@keyframes bounce-in {
-		0%   { transform: scale(0); opacity: 0; }
-		60%  { transform: scale(1.1); opacity: 1; }
-		100% { transform: scale(1); opacity: 1; }
-	}
-	.animate-bounce-in {
-		animation: bounce-in 0.4s ease-out both;
-	}
-</style>

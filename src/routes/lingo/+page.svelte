@@ -3,6 +3,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import WordBoard from '$lib/components/word/WordBoard.svelte';
 	import WordKeyboard from '$lib/components/word/WordKeyboard.svelte';
+	import WordCorrectOverlay from '$lib/components/word/WordCorrectOverlay.svelte';
 	import CountdownTimer from '$lib/components/lingo/CountdownTimer.svelte';
 	import BallPit from '$lib/components/lingo/BallPit.svelte';
 	import BingoCard from '$lib/components/lingo/BingoCard.svelte';
@@ -14,11 +15,19 @@
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
+	import { FLIP_DURATION, FLIP_BUFFER, BONUS_EXTRA_SECONDS, BONUS_COUNTDOWN_MS, LINGO_WORD_LENGTH, LINGO_MAX_ATTEMPTS, WIN_OVERLAY_DELAY } from '$lib/config/constants';
+
+	// ── Translations ─────────────────────────────────────────────────────────
+	const t = $derived(langStore.t.lingo);
+	const tNav = $derived(langStore.t.nav);
+	const tGold = $derived(langStore.t.goldBall);
+
+	// ── Game state ────────────────────────────────────────────────────────────
 	let currentInput = $state<string[]>([]);
 	let message = $state('');
 	let gameState = $state<GameState>({
-		wordLength: 0,
-		maxAttempts: 5,
+		wordLength: LINGO_WORD_LENGTH,
+		maxAttempts: LINGO_MAX_ATTEMPTS,
 		guesses: [],
 		status: 'playing',
 		revealedLetters: {}
@@ -32,19 +41,30 @@
 	let submitting = $state(false);
 	let ballPit = $state<Ball[]>([]);
 	let bonusLetter = $state<string | null>(null);
+	let bonusPosition = $state<number | null>(null);
 	let shakeRow = $state(false);
 	let revealingRow = $state(-1);
+	let showWinOverlay = $state(false);
+	let showLostOverlay = $state(false);
+	let winWord = $state('');
+	let lostWord = $state('');
+	let winOverlayTimer: ReturnType<typeof setTimeout> | null = null;
+	let animating = $state(false);
+	let bonusCountdown = $state(false);
 
-	const FLIP_DURATION = 300;
-	const FLIP_BUFFER = 200;
+	// ── Timer seconds (bonus gets +20) ────────────────────────────────────────
+	const currentTimerSeconds = $derived(
+		phase === 'bonus' ? data.timerSeconds + BONUS_EXTRA_SECONDS : data.timerSeconds
+	);
 
-	const t = $derived(langStore.t.lingo);
-	const tNav = $derived(langStore.t.nav);
-	const tGold = $derived(langStore.t.goldBall);
-
-	// Sync from fresh server data
+	// ── Sync from server on load / invalidateAll ──────────────────────────────
 	$effect(() => {
-		gameState = data.gameState as GameState;
+		if (animating) return;
+		gameState = {
+			...(data.gameState as GameState),
+			wordLength: LINGO_WORD_LENGTH,
+			maxAttempts: LINGO_MAX_ATTEMPTS
+		};
 		phase = data.phase;
 		roundNumber = data.roundNumber;
 		wordsGuessed = data.wordsGuessed;
@@ -52,33 +72,44 @@
 		bingo = data.bingo as BingoResult;
 		ballPit = data.ballPit as Ball[];
 		bonusLetter = data.bonusLetter ?? null;
+		bonusPosition = data.bonusPosition ?? null;
 		currentInput = [];
 		timerActive = phase === 'guessing' || phase === 'bonus';
 	});
 
-	// Handle action responses
+	// ── Action response handler ───────────────────────────────────────────────
 	$effect(() => {
 		if (!form) return;
 
+		// ── Guess submitted ──────────────────────────────────────────────────
 		if ('gameStatus' in form && form.gameStatus) {
 			const newGuesses = data.gameState.guesses;
 			const newRowIndex = newGuesses.length - 1;
-			const wordLen = gameState.wordLength || data.wordLength;
-			const totalFlipMs = (wordLen - 1) * FLIP_DURATION + 500 + FLIP_BUFFER;
+			const totalFlipMs = (LINGO_WORD_LENGTH - 1) * FLIP_DURATION + 500 + FLIP_BUFFER;
 
-			// Show row without colours while flip runs
-			gameState = { ...gameState, guesses: newGuesses, status: 'playing', revealedLetters: gameState.revealedLetters };
+			// Show tiles immediately (not yet coloured)
+			animating = true;
+			gameState = {
+				...gameState,
+				guesses: newGuesses,
+				status: 'playing',
+				revealedLetters: gameState.revealedLetters
+			};
 			currentInput = [];
 			revealingRow = newRowIndex;
 
 			setTimeout(() => {
 				revealingRow = -1;
 				submitting = false;
+				animating = false;
+
+				// Apply final state + colours after flip
 				gameState = {
 					...gameState,
 					guesses: newGuesses,
 					status: form.gameStatus as GameState['status'],
-					revealedLetters: (form.revealedLetters as GameState['revealedLetters']) ?? gameState.revealedLetters
+					revealedLetters:
+						(form.revealedLetters as GameState['revealedLetters']) ?? gameState.revealedLetters
 				};
 
 				if (form.phase) phase = form.phase as typeof phase;
@@ -86,68 +117,77 @@
 				if ('bingo' in form) bingo = form.bingo as BingoResult;
 				if (typeof form.roundNumber === 'number') roundNumber = form.roundNumber;
 				if ('bonusLetter' in form) bonusLetter = (form.bonusLetter as string | null) ?? null;
+				if ('bonusPosition' in form) bonusPosition = (form.bonusPosition as number | null) ?? null;
 
 				if (form.gameStatus === 'won') {
-					message = t.messageWon;
+					// ✅ Correct word — show overlay then advance (same as palabra)
 					timerActive = false;
+					winWord = newGuesses[newGuesses.length - 1]?.map((g) => g.letter).join('') ?? '';
+					showWinOverlay = true;
+					winOverlayTimer = setTimeout(() => advanceFromWin(), WIN_OVERLAY_DELAY);
 				} else if (form.gameStatus === 'lost') {
+					// ❌ All attempts exhausted (including bonus) — reveal word via overlay
 					const word = form.word as string | undefined;
-					message = word ? `${t.messageLost} ${word.toUpperCase()}` : t.messageNextWord;
 					timerActive = false;
-					if (form.phase === 'guessing') {
-						setTimeout(() => {
-							message = '';
-							timerActive = true;
-							invalidateAll();
-						}, 2000);
+					if (word) {
+						lostWord = word;
+						showLostOverlay = true;
+					} else {
+						invalidateAll();
 					}
 				} else if (form.phase === 'bonus') {
-					message = t.messageBonusRound;
-					timerActive = true;
-					setTimeout(() => { if (phase === 'bonus') message = ''; }, 2500);
+					// 6 normal attempts failed → bonus round unlocked after 20s delay
+					timerActive = false;
+					bonusCountdown = true;
+					message = t.bonusRound;
+					setTimeout(() => {
+						bonusCountdown = false;
+						timerActive = true;
+						message = '';
+					}, BONUS_COUNTDOWN_MS);
 				}
 			}, totalFlipMs);
 		}
 
+		// ── Timer expired ────────────────────────────────────────────────────
 		if ('timedOut' in form && form.timedOut) {
 			if (form.phase) phase = form.phase as typeof phase;
 			if (typeof form.roundNumber === 'number') roundNumber = form.roundNumber;
 			if ('bonusLetter' in form) bonusLetter = (form.bonusLetter as string | null) ?? null;
+			if ('bonusPosition' in form) bonusPosition = (form.bonusPosition as number | null) ?? null;
+
+			currentInput = [];
 
 			if (form.phase === 'bonus') {
-				message = t.messageBonusRound;
-				timerActive = true;
-				currentInput = [];
-				setTimeout(() => { if (phase === 'bonus') message = ''; }, 2500);
+				// Normal timer expired → move to bonus round after 20s delay
+				timerActive = false;
+				bonusCountdown = true;
+				message = t.bonusRound;
+				setTimeout(() => {
+					bonusCountdown = false;
+					timerActive = true;
+					message = '';
+				}, BONUS_COUNTDOWN_MS);
 			} else if (form.phase === 'done') {
+				// Bonus timer expired too → reveal word via overlay
 				timerActive = false;
 				const word = form.word as string | undefined;
-				if (word) message = `${t.messageLost} ${word.toUpperCase()}`;
-				invalidateAll();
+				if (word) {
+					lostWord = word;
+					showLostOverlay = true;
+				} else {
+					invalidateAll();
+				}
 			} else {
-				// Still guessing — next attempt
-				message = t.messageTimeout;
+				// Mid-round timeout (shouldn't normally happen)
 				timerActive = false;
-				currentInput = [];
 				setTimeout(() => {
-					message = '';
 					timerActive = true;
 				}, 1200);
 			}
-
-			if (form.phase === 'guessing' && typeof form.word === 'string') {
-				// Word revealed after bonus timer expiry
-				const word = form.word as string;
-				message = `${t.messageLost} ${word.toUpperCase()}`;
-				timerActive = false;
-				setTimeout(() => {
-					message = '';
-					timerActive = true;
-					invalidateAll();
-				}, 2000);
-			}
 		}
 
+		// ── Ball picked ──────────────────────────────────────────────────────
 		if ('pickedBall' in form && form.pickedBall) {
 			const picked = form.pickedBall as Ball;
 			ballPit = ballPit.map((b) => (b.number === picked.number ? { ...b, picked: true } : b));
@@ -162,6 +202,7 @@
 			if (form.phase !== 'gold') setTimeout(() => (message = ''), 1500);
 		}
 
+		// ── Card number marked ───────────────────────────────────────────────
 		if ('markedNumbers' in form && form.phase && !('pickedBall' in form)) {
 			if (form.markedNumbers) markedNumbers = form.markedNumbers as MarkedNumber[];
 			if ('bingo' in form) bingo = form.bingo as BingoResult;
@@ -170,19 +211,33 @@
 			setTimeout(() => (message = ''), 1500);
 		}
 
+		// ── Invalid word — red shake only, no message ────────────────────────
 		if ('error' in form && form.error) {
 			submitting = false;
-			message = form.error as string;
 			shakeRow = true;
-			setTimeout(() => { shakeRow = false; message = ''; }, 600);
+			setTimeout(() => {
+				shakeRow = false;
+			}, 600);
 		}
 	});
 
+	// ── Win overlay advance (same pattern as palabra) ─────────────────────────
+	function advanceFromWin() {
+		if (winOverlayTimer) {
+			clearTimeout(winOverlayTimer);
+			winOverlayTimer = null;
+		}
+		showWinOverlay = false;
+		invalidateAll();
+	}
+
+	// ── Input handling ────────────────────────────────────────────────────────
 	function handleKey(key: string) {
-		if ((phase !== 'guessing' && phase !== 'bonus') || gameState.status !== 'playing' || submitting) return;
-		// In bonus phase, input slots = wordLength - 2 (first + bonus letter locked)
+		if ((phase !== 'guessing' && phase !== 'bonus') || gameState.status !== 'playing' || submitting)
+			return;
+		// guessing: 1 locked (first letter); bonus: 2 locked (first + bonus hint)
 		const lockedCount = phase === 'bonus' ? 2 : 1;
-		const maxInput = gameState.wordLength - lockedCount;
+		const maxInput = LINGO_WORD_LENGTH - lockedCount;
 		if (key === 'Backspace') {
 			if (currentInput.length > 0) currentInput = currentInput.slice(0, -1);
 		} else if (key === 'Enter') {
@@ -194,10 +249,18 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.ctrlKey || e.metaKey || e.altKey) return;
+		if (showWinOverlay) {
+			advanceFromWin();
+			return;
+		}
 		handleKey(e.key === 'Enter' ? 'Enter' : e.key === 'Backspace' ? 'Backspace' : e.key);
 	}
 
+	// ── Forms ─────────────────────────────────────────────────────────────────
+	let guessForm: HTMLFormElement;
 	let timerExpireForm: HTMLFormElement;
+	let ballForm: HTMLFormElement;
+	let cardPickForm: HTMLFormElement;
 
 	function handleTimerExpire() {
 		if ((phase !== 'guessing' && phase !== 'bonus') || gameState.status !== 'playing') return;
@@ -206,13 +269,9 @@
 		timerExpireForm.requestSubmit();
 	}
 
-	let guessForm: HTMLFormElement;
-	let ballForm: HTMLFormElement;
-	let cardPickForm: HTMLFormElement;
-
 	function submitGuess() {
 		const lockedCount = phase === 'bonus' ? 2 : 1;
-		const needed = gameState.wordLength - lockedCount;
+		const needed = LINGO_WORD_LENGTH - lockedCount;
 		if (currentInput.length !== needed || submitting) return;
 		submitting = true;
 		guessForm.requestSubmit();
@@ -221,152 +280,160 @@
 	function handlePickBall(ball: Ball) {
 		const idx = ballPit.findIndex((b) => b.number === ball.number);
 		if (idx === -1) return;
-		const input = ballForm.querySelector('input[name="ballIndex"]') as HTMLInputElement;
-		if (input) input.value = String(idx);
+		(ballForm.querySelector('input[name="ballIndex"]') as HTMLInputElement).value = String(idx);
 		ballForm.requestSubmit();
 	}
 
 	function handleCardNumberPick(num: number) {
-		const input = cardPickForm.querySelector('input[name="number"]') as HTMLInputElement;
-		if (input) input.value = String(num);
+		(cardPickForm.querySelector('input[name="number"]') as HTMLInputElement).value = String(num);
 		cardPickForm.requestSubmit();
 	}
 
+	// ── Derived ───────────────────────────────────────────────────────────────
 	const markedSet = $derived(new Set(markedNumbers.map((m) => m.number)));
 
 	const unmarkedCardNumbers = $derived(
 		data.bingoCard.flat().filter((n) => n !== 0 && !markedSet.has(n))
 	);
 
-	// Full input for the word board:
-	// guessing: [firstLetter, ...currentInput]
-	// bonus: [firstLetter, bonusLetter, ...currentInput]
-	const fullCurrentInput = $derived.by(() => {
-		if (phase === 'guessing') return [data.firstLetter, ...currentInput];
-		if (phase === 'bonus' && bonusLetter) return [data.firstLetter, bonusLetter, ...currentInput];
-		return [];
-	});
-
-	// lockedPositions for bonus row (pos 1 = bonus letter)
 	const bonusLockedPositions = $derived<Record<number, string>>(
-		phase === 'bonus' && bonusLetter ? { 1: bonusLetter } : {}
+		phase === 'bonus' && bonusLetter && bonusPosition !== null
+			? { [bonusPosition]: bonusLetter }
+			: {}
 	);
 
-	// Total board rows: 5 regular + 1 bonus = 6 shown when in bonus or after
-	const totalBoardRows = $derived(
-		phase === 'bonus' || (gameState.guesses.length > gameState.maxAttempts - 1) ? gameState.maxAttempts + 1 : gameState.maxAttempts
-	);
+	// 6 rows normally; 7 when bonus row is live (after 20s countdown)
+	const totalBoardRows = $derived(phase === 'bonus' && !bonusCountdown ? 7 : 6);
 
-	// Cursor position: offset by locked letters (1 in guessing, 2 in bonus)
-	const activeInputIndex = $derived.by(() => {
-		if (gameState.status !== 'playing' || submitting) return -1;
-		const lockedCount = phase === 'bonus' ? 2 : 1;
-		return lockedCount + currentInput.length;
-	});
+	// Cursor = next free slot index within freePositions
+	const activeInputIndex = $derived(
+		gameState.status !== 'playing' || submitting ? -1 : currentInput.length
+	);
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="min-h-screen flex flex-col items-center bg-white px-4 py-6">
-	<!-- Header -->
-	<div class="w-full max-w-lg mb-4">
-		<div class="flex items-center justify-between mb-2">
+<div class="min-h-screen flex flex-col items-center bg-bg-lingo px-4 pt-16">
+	<!-- ── Header ──────────────────────────────────────────────────────────── -->
+	<div class="w-full max-w-lg">
+		<div class="relative flex items-center mb-2">
 			<a href="/" class="text-gray-400 hover:text-gray-600 text-sm">{tNav.back}</a>
-			<div class="text-center">
-				<h1 class="text-2xl font-black tracking-widest uppercase text-red-600">{t.title}</h1>
+			<div class="absolute left-1/2 -translate-x-1/2 text-center pointer-events-none">
+				<h1 class="text-2xl font-black tracking-widest uppercase text-blue-600 whitespace-nowrap">
+					{t.title}
+				</h1>
 				<div class="text-xs text-gray-400 mt-0.5">
 					{t.roundCounter(roundNumber, data.totalRounds)} · {t.wordsCorrect(wordsGuessed)}
 				</div>
 			</div>
-			<LangToggle />
+			<div class="ml-auto"><LangToggle /></div>
 		</div>
 	</div>
 
-	<!-- Message -->
+	<!-- ── Timer ───────────────────────────────────────────────────────────── -->
+	<div class="flex justify-center gap-2 mt-4">
+		{#if phase === 'guessing' || phase === 'bonus'}
+			<div class="flex items-center gap-3">
+				{#key phase}
+					<CountdownTimer
+						seconds={currentTimerSeconds}
+						active={timerActive && gameState.status === 'playing'}
+						onExpire={handleTimerExpire}
+					/>
+				{/key}
+				{#if phase === 'bonus'}
+					<div
+						class="px-3 py-1 bg-orange-100 border border-orange-300 rounded-lg text-xs font-bold text-orange-700 uppercase tracking-wide"
+					>
+						{t.bonusRound}
+					</div>
+				{/if}
+			</div>
+		{/if}
+	</div>
+
+	<!-- ── Message ─────────────────────────────────────────────────────────── -->
 	{#if message}
-		<div class="mb-3 px-5 py-2 rounded-full text-sm font-semibold
-			{phase === 'bonus' && message === t.messageBonusRound
-				? 'bg-orange-500 text-white'
-				: 'bg-gray-900 text-white'}">
+		<div class="mt-3 mb-1 px-5 py-2 bg-gray-900 text-white rounded-full text-sm font-semibold">
 			{message}
 		</div>
 	{/if}
 
+	<!-- ── Guessing / Bonus ─────────────────────────────────────────────────── -->
 	{#if phase === 'guessing' || phase === 'bonus'}
-		<div class="flex flex-col md:flex-row gap-6 items-start justify-center w-full max-w-lg">
-			<div class="flex flex-col items-center gap-4">
-				<div class="flex items-center gap-3">
-					<CountdownTimer
-						seconds={data.timerSeconds}
-						active={timerActive && gameState.status === 'playing'}
-						onExpire={handleTimerExpire}
-					/>
-					{#if phase === 'bonus'}
-						<div class="px-3 py-1 bg-orange-100 border border-orange-300 rounded-lg text-xs font-bold text-orange-700 uppercase tracking-wide">
-							{t.bonusRound}
-						</div>
-					{/if}
-				</div>
-				<WordBoard
-					{gameState}
-					currentInput={fullCurrentInput}
-					firstLetterLocked={data.firstLetter}
-					lockedPositions={bonusLockedPositions}
-					totalRows={totalBoardRows}
-					{shakeRow}
-					{revealingRow}
-					{activeInputIndex}
-				/>
-				<div class="w-full max-w-md">
-					<WordKeyboard
-						revealedLetters={gameState.revealedLetters}
-						onKey={handleKey}
-						disabled={gameState.status !== 'playing' || submitting}
-					/>
-				</div>
-			</div>
-			<div class="shrink-0">
+		<div class="mt-4 mb-4 relative w-full max-w-2xl flex flex-col items-center">
+			<WordBoard
+				{gameState}
+				{currentInput}
+				firstLetterLocked={data.firstLetter}
+				lockedPositions={bonusLockedPositions}
+				totalRows={totalBoardRows}
+				{shakeRow}
+				{revealingRow}
+				{activeInputIndex}
+			/>
+			<div class="hidden md:block absolute top-0 right-0 -mr-64">
 				<BingoCard card={data.bingoCard} marked={markedNumbers} {bingo} />
 			</div>
 		</div>
+
+		<div class="w-full max-w-md">
+			<WordKeyboard
+				revealedLetters={gameState.revealedLetters}
+				onKey={handleKey}
+				disabled={gameState.status !== 'playing' || submitting}
+			/>
+		</div>
+
+		<div class="md:hidden flex justify-center mt-4">
+			<BingoCard card={data.bingoCard} marked={markedNumbers} {bingo} />
+		</div>
+
+		<!-- ── Ball pit ─────────────────────────────────────────────────────────── -->
 	{:else if phase === 'balls'}
-		<div class="flex flex-col md:flex-row gap-8 items-start justify-center w-full max-w-lg">
+		<div class="mt-4 relative w-full max-w-2xl flex flex-col items-center">
 			<BallPit balls={ballPit} onPick={handlePickBall} />
-			<BingoCard card={data.bingoCard} marked={markedNumbers} {bingo} />
-		</div>
-	{:else if phase === 'gold'}
-		<div class="flex flex-col md:flex-row gap-8 items-start justify-center w-full max-w-lg">
-			<div class="flex flex-col items-center gap-4">
-				<div class="text-center">
-					<div class="text-4xl">{tGold.emoji}</div>
-					<h2 class="text-lg font-black mt-2">{tGold.title}</h2>
-					<p class="text-sm text-gray-500 mt-1">{tGold.subtitle}</p>
-				</div>
-				<div class="grid grid-cols-5 gap-2 max-w-xs">
-					{#each unmarkedCardNumbers as num}
-						<button
-							onclick={() => handleCardNumberPick(num)}
-							class="w-11 h-11 rounded-lg bg-ball-gold text-white font-bold text-sm
-								hover:brightness-110 active:scale-95 transition-all"
-						>
-							{num}
-						</button>
-					{/each}
-				</div>
+			<div class="hidden md:block absolute top-0 right-0 -mr-64">
+				<BingoCard card={data.bingoCard} marked={markedNumbers} {bingo} />
 			</div>
+		</div>
+		<div class="md:hidden flex justify-center mt-4">
 			<BingoCard card={data.bingoCard} marked={markedNumbers} {bingo} />
 		</div>
+
+		<!-- ── Gold ball ────────────────────────────────────────────────────────── -->
+	{:else if phase === 'gold'}
+		<div class="mt-4 relative w-full max-w-2xl flex flex-col items-center gap-4">
+			<div class="text-center">
+				<div class="text-4xl">{tGold.emoji}</div>
+				<h2 class="text-lg font-black mt-2">{tGold.title}</h2>
+				<p class="text-sm text-gray-500 mt-1">{tGold.subtitle}</p>
+			</div>
+			<div class="grid grid-cols-5 gap-2 max-w-xs">
+				{#each unmarkedCardNumbers as num}
+					<button
+						onclick={() => handleCardNumberPick(num)}
+						class="w-11 h-11 rounded-lg bg-ball-gold text-white font-bold text-sm hover:brightness-110 active:scale-95 transition-all"
+					>
+						{num}
+					</button>
+				{/each}
+			</div>
+			<div class="hidden md:block absolute top-0 right-0 -mr-64">
+				<BingoCard card={data.bingoCard} marked={markedNumbers} {bingo} />
+			</div>
+		</div>
+		<div class="md:hidden flex justify-center mt-4">
+			<BingoCard card={data.bingoCard} marked={markedNumbers} {bingo} />
+		</div>
+
+		<!-- ── Game over ────────────────────────────────────────────────────────── -->
 	{:else}
-		<!-- Game over — all 5 rounds played -->
-		<div class="flex flex-col items-center gap-6 mt-2 w-full max-w-lg">
+		<div class="flex flex-col items-center gap-6 mt-4 w-full max-w-lg">
 			<div class="text-center">
 				<div class="text-5xl mb-2">{bingo ? '🎉' : '📋'}</div>
-				<h2 class="text-2xl font-black">
-					{bingo ? t.gameOverBingo : t.gameOverTitle}
-				</h2>
-				<p class="text-gray-500 mt-1">
-					{t.gameOverSummary(wordsGuessed, data.totalRounds)}
-				</p>
+				<h2 class="text-2xl font-black">{bingo ? t.gameOverBingo : t.gameOverTitle}</h2>
+				<p class="text-gray-500 mt-1">{t.gameOverSummary(wordsGuessed, data.totalRounds)}</p>
 			</div>
 
 			<BingoCard card={data.bingoCard} marked={markedNumbers} {bingo} />
@@ -386,7 +453,7 @@
 					<input type="hidden" name="length" value={data.wordLength} />
 					<button
 						type="submit"
-						class="px-8 py-3 bg-red-600 text-white rounded-xl font-black text-lg hover:bg-red-700 transition-colors"
+						class="px-8 py-3 bg-blue-600 text-white rounded-xl font-black text-lg hover:bg-blue-700 transition-colors"
 					>
 						{t.newGame}
 					</button>
@@ -398,7 +465,7 @@
 		</div>
 	{/if}
 
-	<!-- Scores (logged-in, guessing phase only) -->
+	<!-- ── Scores ───────────────────────────────────────────────────────────── -->
 	{#if data.scores && (phase === 'guessing' || phase === 'bonus')}
 		<div class="mt-8 grid grid-cols-3 gap-4 text-center max-w-xs w-full">
 			<div>
@@ -417,20 +484,42 @@
 	{/if}
 </div>
 
-<!-- Hidden forms -->
+<!-- ── Win overlay (identical pattern to palabra) ──────────────────────────── -->
+<WordCorrectOverlay
+	show={showWinOverlay}
+	word={winWord}
+	messageText={t.messageWon}
+	onDismiss={advanceFromWin}
+/>
+
+<WordCorrectOverlay
+	show={showLostOverlay}
+	word={lostWord}
+	messageText={t.messageLost}
+	variant="lost"
+	onDismiss={() => { showLostOverlay = false; invalidateAll(); }}
+/>
+
+<!-- ── Hidden forms ─────────────────────────────────────────────────────────── -->
 <form
 	bind:this={guessForm}
 	method="POST"
 	action="?/submitGuess"
 	use:enhance={({ formData }) => {
-		const locked = phase === 'bonus' && bonusLetter
-			? [data.firstLetter, bonusLetter, ...currentInput]
-			: [data.firstLetter, ...currentInput];
-		formData.set('guess', locked.join(''));
+		// Build full 6-letter guess, inserting locked positions
+		const result: string[] = Array(LINGO_WORD_LENGTH).fill('');
+		result[0] = data.firstLetter;
+		if (phase === 'bonus' && bonusLetter && bonusPosition !== null) {
+			result[bonusPosition] = bonusLetter;
+		}
+		let inputIdx = 0;
+		for (let i = 0; i < LINGO_WORD_LENGTH; i++) {
+			if (result[i]) continue;
+			if (inputIdx < currentInput.length) result[i] = currentInput[inputIdx++];
+		}
+		formData.set('guess', result.join(''));
 		return async ({ result, update }) => {
 			await update({ reset: false });
-			// submitting stays true until flip animation completes (handled in $effect)
-			// But on non-gameStatus responses (error etc.) $effect resets it
 			if (
 				result.type === 'success' &&
 				result.data?.gameStatus === 'lost' &&

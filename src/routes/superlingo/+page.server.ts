@@ -1,17 +1,16 @@
 import { db } from '$lib/server/db';
-import { words, scores } from '$lib/server/db/schema';
+import { scores } from '$lib/server/db/schema';
 import { evaluateGuess, applyGuess } from '$lib/game/word-engine';
 import {
 	createLingoRound,
 	generateLetterBalls,
-	buildRevealedPuzzle,
-	ROUNDS_PER_GAME,
-	MAX_ATTEMPTS,
-	TIMER_SECONDS
+	buildRevealedPuzzle
 } from '$lib/game/lingo-engine';
+import { ROUNDS_PER_GAME, TIMER_SECONDS, TIMER_GRACE_SECONDS, COOKIE_MAX_AGE, SUPERLINGO_WORD_LENGTH, SUPERLINGO_MAX_ATTEMPTS } from '$lib/config/constants';
 import type { LetterBall } from '$lib/game/lingo-engine';
-import { getRandomPuzzleWord } from '$lib/server/words/puzzle-words';
-import { eq, and, sql } from 'drizzle-orm';
+import { isValidWord } from '$lib/server/words/validate-word';
+import { getWord, getPuzzleWord } from '$lib/server/words/get-word';
+import { eq, and } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -24,7 +23,7 @@ const COOKIE_OPTS = {
 	secure: false,
 	sameSite: 'lax' as const,
 	path: '/superlingo',
-	maxAge: 60 * 60 * 4
+	maxAge: COOKIE_MAX_AGE
 };
 
 interface SuperLingoState {
@@ -36,19 +35,28 @@ interface SuperLingoState {
 	balls: LetterBall[];
 	roundStartedAt: number;
 	bonusLetter: string | null;
+	bonusPosition: number | null;
 	// Puzzle word is stored in PUZZLE_COOKIE (hidden), revealed positions tracked here
 	puzzleRevealed: (string | null)[]; // null = hidden, string = revealed letter
 	puzzleWon: boolean;
 }
 
-async function getRandomWord(length: number): Promise<string> {
-	const result = await db
-		.select({ word: words.word })
-		.from(words)
-		.where(and(eq(words.length, length), eq(words.isActive, true)))
-		.orderBy(sql`random()`)
-		.limit(1);
-	return result[0]?.word ?? 'gatos';
+function getGameWord(length: number, roundNumber: number): string {
+	return getWord(length, roundNumber);
+}
+
+function pickBonusPosition(target: string, guesses: string[]): { position: number; letter: string } | null {
+	const correctPositions = new Set<number>([0]);
+	for (const guess of guesses) {
+		for (let i = 0; i < guess.length; i++) {
+			if (guess[i] === target[i]) correctPositions.add(i);
+		}
+	}
+	const available = Array.from({ length: target.length }, (_, i) => i)
+		.filter((i) => !correctPositions.has(i));
+	if (available.length === 0) return null;
+	const pos = available[Math.floor(Math.random() * available.length)];
+	return { position: pos, letter: target[pos] };
 }
 
 function freshState(puzzleWord: string): SuperLingoState {
@@ -63,13 +71,14 @@ function freshState(puzzleWord: string): SuperLingoState {
 		balls,
 		roundStartedAt: Date.now(),
 		bonusLetter: null,
+		bonusPosition: null,
 		puzzleRevealed: revealed,
 		puzzleWon: false
 	};
 }
 
 export const load: PageServerLoad = async ({ cookies, locals }) => {
-	const wordLength = 6;
+	const wordLength = SUPERLINGO_WORD_LENGTH;
 
 	const wordCookie = cookies.get(WORD_COOKIE);
 	const stateCookie = cookies.get(STATE_COOKIE);
@@ -87,9 +96,10 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 		state = JSON.parse(stateCookie);
 		if (state.missedAttempts === undefined) state.missedAttempts = 0;
 		if (state.bonusLetter === undefined) state.bonusLetter = null;
+		if (state.bonusPosition === undefined) state.bonusPosition = null;
 	} else {
-		target = await getRandomWord(wordLength);
-		puzzleWord = getRandomPuzzleWord();
+		target = getGameWord(wordLength, 1);
+		puzzleWord = getPuzzleWord();
 		state = freshState(puzzleWord);
 		cookies.set(WORD_COOKIE, `${wordLength}:${target}`, COOKIE_OPTS);
 		cookies.set(PUZZLE_COOKIE, puzzleWord, COOKIE_OPTS);
@@ -97,7 +107,7 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 	}
 
 	// Rebuild game state from guesses
-	let gameState = createLingoRound(target);
+	let gameState = createLingoRound(target, SUPERLINGO_MAX_ATTEMPTS);
 	for (const g of state.guesses) {
 		const updated = applyGuess(gameState, g, target);
 		gameState = { ...updated, firstLetter: target[0], roundStartedAt: state.roundStartedAt };
@@ -124,6 +134,7 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 		wordLength,
 		firstLetter: target[0],
 		bonusLetter: state.bonusLetter,
+		bonusPosition: state.bonusPosition,
 		missedAttempts: state.missedAttempts,
 		gameState: {
 			wordLength: gameState.wordLength,
@@ -154,11 +165,15 @@ export const actions: Actions = {
 		const wordCookie = cookies.get(WORD_COOKIE);
 		if (!wordCookie) return fail(400, { error: 'No hay palabra activa' });
 
-		const wordLength = 6;
+		const wordLength = SUPERLINGO_WORD_LENGTH;
 		const target = wordCookie.split(':')[1];
 
 		if (!guess || guess.length !== wordLength) {
 			return fail(400, { error: `La palabra debe tener ${wordLength} letras` });
+		}
+
+		if (!isValidWord(guess)) {
+			return fail(400, { error: 'Palabra no válida' });
 		}
 
 		const stateCookie = cookies.get(STATE_COOKIE);
@@ -166,6 +181,7 @@ export const actions: Actions = {
 		const state: SuperLingoState = stateCookie ? JSON.parse(stateCookie) : freshState(puzzleWord);
 		if (state.missedAttempts === undefined) state.missedAttempts = 0;
 		if (state.bonusLetter === undefined) state.bonusLetter = null;
+		if (state.bonusPosition === undefined) state.bonusPosition = null;
 
 		if (state.phase !== 'guessing' && state.phase !== 'bonus') {
 			return fail(400, { error: 'No estás en fase de adivinar' });
@@ -173,14 +189,14 @@ export const actions: Actions = {
 
 		// Server-side timer check (2s grace)
 		const elapsed = Date.now() - state.roundStartedAt;
-		if (elapsed > (TIMER_SECONDS + 2) * 1000) {
+		if (elapsed > (TIMER_SECONDS + TIMER_GRACE_SECONDS) * 1000) {
 			return await handleTimerExpiry(state, cookies, target, wordLength, puzzleWord, locals);
 		}
 
 		const feedback = evaluateGuess(guess, target);
 		const newGuesses = [...state.guesses, guess];
 
-		let gameState = createLingoRound(target);
+		let gameState = createLingoRound(target, SUPERLINGO_MAX_ATTEMPTS);
 		for (const g of newGuesses) {
 			const updated = applyGuess(gameState, g, target);
 			gameState = { ...updated, firstLetter: target[0], roundStartedAt: state.roundStartedAt };
@@ -195,6 +211,7 @@ export const actions: Actions = {
 			state.phase = 'balls';
 			state.roundStartedAt = Date.now();
 			state.bonusLetter = null;
+			state.bonusPosition = null;
 			state.missedAttempts = 0;
 		} else if (lost) {
 			if (state.phase === 'bonus') {
@@ -202,13 +219,14 @@ export const actions: Actions = {
 				if (state.roundNumber >= ROUNDS_PER_GAME) {
 					state.phase = 'done';
 				} else {
-					const newWord = await getRandomWord(wordLength);
+					const newWord = getGameWord(wordLength, state.roundNumber + 1);
 					state.roundNumber += 1;
 					state.guesses = [];
 					state.missedAttempts = 0;
 					state.phase = 'guessing';
 					state.roundStartedAt = Date.now();
 					state.bonusLetter = null;
+					state.bonusPosition = null;
 					cookies.set(WORD_COOKIE, `${wordLength}:${newWord}`, COOKIE_OPTS);
 					cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
 					return {
@@ -218,13 +236,16 @@ export const actions: Actions = {
 						phase: state.phase,
 						word: target,
 						roundNumber: state.roundNumber,
-						bonusLetter: null as string | null
+						bonusLetter: null as string | null,
+						bonusPosition: null as number | null
 					};
 				}
 			} else {
 				// Enter bonus phase
 				state.phase = 'bonus';
-				state.bonusLetter = target.length > 1 ? target[1] : null;
+				const bonus = pickBonusPosition(target, [...state.guesses, guess]);
+				state.bonusLetter = bonus?.letter ?? null;
+				state.bonusPosition = bonus?.position ?? null;
 				state.roundStartedAt = Date.now();
 				cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
 				return {
@@ -232,7 +253,8 @@ export const actions: Actions = {
 					gameStatus: 'playing' as const,
 					revealedLetters: gameState.revealedLetters,
 					phase: 'bonus' as const,
-					bonusLetter: state.bonusLetter
+					bonusLetter: state.bonusLetter,
+					bonusPosition: state.bonusPosition
 				};
 			}
 		} else {
@@ -252,7 +274,8 @@ export const actions: Actions = {
 			phase: state.phase,
 			word: lost ? target : undefined,
 			puzzleRevealed: state.puzzleRevealed,
-			bonusLetter: state.bonusLetter as string | null
+			bonusLetter: state.bonusLetter as string | null,
+			bonusPosition: state.bonusPosition as number | null
 		};
 	},
 
@@ -260,7 +283,7 @@ export const actions: Actions = {
 		const wordCookie = cookies.get(WORD_COOKIE);
 		if (!wordCookie) return fail(400, { error: 'No hay palabra activa' });
 
-		const wordLength = 6;
+		const wordLength = SUPERLINGO_WORD_LENGTH;
 		const target = wordCookie.split(':')[1];
 
 		const stateCookie = cookies.get(STATE_COOKIE);
@@ -270,6 +293,7 @@ export const actions: Actions = {
 		const state: SuperLingoState = JSON.parse(stateCookie);
 		if (state.missedAttempts === undefined) state.missedAttempts = 0;
 		if (state.bonusLetter === undefined) state.bonusLetter = null;
+		if (state.bonusPosition === undefined) state.bonusPosition = null;
 
 		return await handleTimerExpiry(state, cookies, target, wordLength, puzzleWord, locals);
 	},
@@ -313,7 +337,7 @@ export const actions: Actions = {
 		const state: SuperLingoState = JSON.parse(stateCookie);
 
 		if (!puzzleGuess || puzzleGuess.length !== puzzleWord.length) {
-			return fail(400, { error: `El puzzelwoord tiene ${puzzleWord.length} letras` });
+			return fail(400, { error: `La palabra oculta tiene ${puzzleWord.length} letras` });
 		}
 
 		const correct = puzzleGuess === puzzleWord;
@@ -355,35 +379,38 @@ async function handleTimerExpiry(
 			state.phase = 'done';
 			if (locals.user) await upsertScores(locals.user.id, wordLength, state);
 			cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
-			return { timedOut: true, phase: 'done' as const, word: target, roundNumber: state.roundNumber, bonusLetter: state.bonusLetter };
+			return { timedOut: true, phase: 'done' as const, word: target, roundNumber: state.roundNumber, bonusLetter: state.bonusLetter, bonusPosition: state.bonusPosition };
 		} else {
-			const newWord = await getRandomWord(wordLength);
+			const newWord = getGameWord(wordLength, state.roundNumber + 1);
 			state.roundNumber += 1;
 			state.guesses = [];
 			state.missedAttempts = 0;
 			state.phase = 'guessing';
 			state.roundStartedAt = Date.now();
 			state.bonusLetter = null;
+			state.bonusPosition = null;
 			cookies.set(WORD_COOKIE, `${wordLength}:${newWord}`, COOKIE_OPTS);
 			cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
-			return { timedOut: true, phase: 'guessing' as const, word: target, roundNumber: state.roundNumber, bonusLetter: null as string | null };
+			return { timedOut: true, phase: 'guessing' as const, word: target, roundNumber: state.roundNumber, bonusLetter: null as string | null, bonusPosition: null as number | null };
 		}
 	}
 
 	state.missedAttempts += 1;
 	const totalAttempts = state.guesses.length + state.missedAttempts;
 
-	if (totalAttempts >= MAX_ATTEMPTS) {
+	if (totalAttempts >= SUPERLINGO_MAX_ATTEMPTS) {
 		state.phase = 'bonus';
-		state.bonusLetter = target.length > 1 ? target[1] : null;
+		const bonus = pickBonusPosition(target, state.guesses);
+		state.bonusLetter = bonus?.letter ?? null;
+		state.bonusPosition = bonus?.position ?? null;
 		state.roundStartedAt = Date.now();
 		cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
-		return { timedOut: true, phase: 'bonus' as const, bonusLetter: state.bonusLetter, roundNumber: state.roundNumber };
+		return { timedOut: true, phase: 'bonus' as const, bonusLetter: state.bonusLetter, bonusPosition: state.bonusPosition, roundNumber: state.roundNumber };
 	}
 
 	state.roundStartedAt = Date.now();
 	cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
-	return { timedOut: true, phase: 'guessing' as const, bonusLetter: null as string | null, roundNumber: state.roundNumber };
+	return { timedOut: true, phase: 'guessing' as const, bonusLetter: null as string | null, bonusPosition: null as number | null, roundNumber: state.roundNumber };
 }
 
 async function advanceRound(
@@ -396,8 +423,8 @@ async function advanceRound(
 		return;
 	}
 
-	const wordLength = 6;
-	const newWord = await getRandomWord(wordLength);
+	const wordLength = SUPERLINGO_WORD_LENGTH;
+	const newWord = getGameWord(wordLength, state.roundNumber + 1);
 
 	state.roundNumber += 1;
 	state.guesses = [];
@@ -405,6 +432,7 @@ async function advanceRound(
 	state.phase = 'guessing';
 	state.roundStartedAt = Date.now();
 	state.bonusLetter = null;
+	state.bonusPosition = null;
 
 	cookies.set(WORD_COOKIE, `${wordLength}:${newWord}`, COOKIE_OPTS);
 	cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);

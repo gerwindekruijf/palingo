@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import { langStore } from '$lib/i18n/lang.svelte';
 	import LangToggle from '$lib/components/LangToggle.svelte';
-	import { authClient } from '$lib/auth-client';
+	import { authClient } from '$lib/auth/client';
 
 	const t = $derived(langStore.t.login);
 	const next = $derived($page.url.searchParams.get('next') ?? '/');

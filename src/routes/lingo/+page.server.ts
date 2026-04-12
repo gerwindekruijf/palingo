@@ -1,18 +1,18 @@
 import { db } from '$lib/server/db';
-import { words, scores } from '$lib/server/db/schema';
+import { scores } from '$lib/server/db/schema';
 import { evaluateGuess, applyGuess } from '$lib/game/word-engine';
 import {
 	createLingoRound,
 	generateBingoCard,
 	generateBallPit,
 	checkBingo,
-	pickRandomCardNumber,
-	ROUNDS_PER_GAME,
-	MAX_ATTEMPTS,
-	TIMER_SECONDS
+	pickRandomCardNumber
 } from '$lib/game/lingo-engine';
+import { ROUNDS_PER_GAME, TIMER_SECONDS, TIMER_GRACE_SECONDS, COOKIE_MAX_AGE, LINGO_WORD_LENGTH, LINGO_MAX_ATTEMPTS } from '$lib/config/constants';
 import type { MarkedNumber, BingoResult } from '$lib/game/lingo-engine';
-import { eq, and, sql } from 'drizzle-orm';
+import { isValidWord } from '$lib/server/words/validate-word';
+import { getWord } from '$lib/server/words/get-word';
+import { eq, and } from 'drizzle-orm';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -24,7 +24,7 @@ const COOKIE_OPTS = {
 	secure: false,
 	sameSite: 'lax' as const,
 	path: '/lingo',
-	maxAge: 60 * 60 * 4
+	maxAge: COOKIE_MAX_AGE
 };
 
 interface LingoState {
@@ -43,18 +43,32 @@ interface LingoState {
 	bingo: BingoResult;
 	ballPit: ReturnType<typeof generateBallPit>;
 	roundStartedAt: number;
-	// Bonus round: second letter hint revealed at position 1 (index 1)
+	// Bonus round: extra letter hint revealed at a random unguessed position
 	bonusLetter: string | null; // null = not in bonus phase
+	bonusPosition: number | null; // position index of the bonus letter
 }
 
-async function getRandomWord(length: number): Promise<string> {
-	const result = await db
-		.select({ word: words.word })
-		.from(words)
-		.where(and(eq(words.length, length), eq(words.isActive, true)))
-		.orderBy(sql`random()`)
-		.limit(1);
-	return result[0]?.word ?? 'gatos';
+function getGameWord(length: number, roundNumber: number): string {
+	return getWord(length, roundNumber);
+}
+
+/**
+ * Pick a random position for the bonus letter hint.
+ * Excludes position 0 (first letter, already locked) and any position
+ * that was guessed correctly in any previous attempt.
+ */
+function pickBonusPosition(target: string, guesses: string[]): { position: number; letter: string } | null {
+	const correctPositions = new Set<number>([0]); // 0 is always locked
+	for (const guess of guesses) {
+		for (let i = 0; i < guess.length; i++) {
+			if (guess[i] === target[i]) correctPositions.add(i);
+		}
+	}
+	const available = Array.from({ length: target.length }, (_, i) => i)
+		.filter((i) => !correctPositions.has(i));
+	if (available.length === 0) return null;
+	const pos = available[Math.floor(Math.random() * available.length)];
+	return { position: pos, letter: target[pos] };
 }
 
 function freshState(): LingoState {
@@ -69,12 +83,13 @@ function freshState(): LingoState {
 		bingo: false as BingoResult,
 		ballPit: generateBallPit(),
 		roundStartedAt: Date.now(),
-		bonusLetter: null
+		bonusLetter: null,
+		bonusPosition: null
 	};
 }
 
 export const load: PageServerLoad = async ({ cookies, locals }) => {
-	const wordLength = 6;
+	const wordLength = LINGO_WORD_LENGTH;
 
 	const wordCookie = cookies.get(WORD_COOKIE);
 	const stateCookie = cookies.get(STATE_COOKIE);
@@ -89,16 +104,17 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 		state = JSON.parse(stateCookie);
 		// Backfill new fields for existing cookies
 		if (state.bonusLetter === undefined) state.bonusLetter = null;
+		if (state.bonusPosition === undefined) state.bonusPosition = null;
 		if (state.missedAttempts === undefined) state.missedAttempts = 0;
 	} else {
-		target = await getRandomWord(wordLength);
+		target = getGameWord(wordLength, 1);
 		state = freshState();
 		cookies.set(WORD_COOKIE, `${wordLength}:${target}`, COOKIE_OPTS);
 		cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
 	}
 
 	// Rebuild game state from guesses
-	let gameState = createLingoRound(target);
+	let gameState = createLingoRound(target, LINGO_MAX_ATTEMPTS);
 	for (const g of state.guesses) {
 		const updated = applyGuess(gameState, g, target);
 		gameState = { ...updated, firstLetter: target[0], roundStartedAt: state.roundStartedAt };
@@ -125,6 +141,7 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 		wordLength,
 		firstLetter: target[0],
 		bonusLetter: state.bonusLetter,
+		bonusPosition: state.bonusPosition,
 		missedAttempts: state.missedAttempts,
 		gameState: {
 			wordLength: gameState.wordLength,
@@ -162,9 +179,14 @@ export const actions: Actions = {
 			return fail(400, { error: `La palabra debe tener ${wordLength} letras` });
 		}
 
+		if (!isValidWord(guess)) {
+			return fail(400, { error: 'Palabra no válida' });
+		}
+
 		const stateCookie = cookies.get(STATE_COOKIE);
 		const state: LingoState = stateCookie ? JSON.parse(stateCookie) : freshState();
 		if (state.bonusLetter === undefined) state.bonusLetter = null;
+		if (state.bonusPosition === undefined) state.bonusPosition = null;
 		if (state.missedAttempts === undefined) state.missedAttempts = 0;
 
 		if (state.phase !== 'guessing' && state.phase !== 'bonus') {
@@ -173,7 +195,7 @@ export const actions: Actions = {
 
 		// Server-side timer check (2s grace)
 		const elapsed = Date.now() - state.roundStartedAt;
-		if (elapsed > (TIMER_SECONDS + 2) * 1000) {
+		if (elapsed > (TIMER_SECONDS + TIMER_GRACE_SECONDS) * 1000) {
 			// Timer expired — treat as a missed attempt
 			return await handleTimerExpiry(state, cookies, target, wordLength, locals);
 		}
@@ -181,7 +203,7 @@ export const actions: Actions = {
 		const feedback = evaluateGuess(guess, target);
 		const newGuesses = [...state.guesses, guess];
 
-		let gameState = createLingoRound(target);
+		let gameState = createLingoRound(target, LINGO_MAX_ATTEMPTS);
 		for (const g of newGuesses) {
 			const updated = applyGuess(gameState, g, target);
 			gameState = { ...updated, firstLetter: target[0], roundStartedAt: state.roundStartedAt };
@@ -201,6 +223,7 @@ export const actions: Actions = {
 			state.ballPit = generateBallPit();
 			state.roundStartedAt = Date.now();
 			state.bonusLetter = null;
+			state.bonusPosition = null;
 			state.missedAttempts = 0;
 		} else if (lost) {
 			// All attempts used (incl. bonus if in bonus phase)
@@ -209,7 +232,7 @@ export const actions: Actions = {
 				if (state.roundNumber >= ROUNDS_PER_GAME) {
 					state.phase = 'done';
 				} else {
-					const newWord = await getRandomWord(wordLength);
+					const newWord = getGameWord(wordLength, state.roundNumber + 1);
 					state.roundNumber += 1;
 					state.guesses = [];
 					state.missedAttempts = 0;
@@ -217,6 +240,7 @@ export const actions: Actions = {
 					state.ballPit = generateBallPit();
 					state.roundStartedAt = Date.now();
 					state.bonusLetter = null;
+					state.bonusPosition = null;
 					cookies.set(WORD_COOKIE, `${wordLength}:${newWord}`, COOKIE_OPTS);
 					cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
 					return {
@@ -226,14 +250,16 @@ export const actions: Actions = {
 						phase: state.phase,
 						word: target,
 						roundNumber: state.roundNumber,
-						bonusLetter: null as string | null
+						bonusLetter: null as string | null,
+						bonusPosition: null as number | null
 					};
 				}
 			} else {
-				// 5 regular attempts used — enter bonus phase with extra letter hint
+				// 6 regular attempts used — enter bonus phase with extra letter hint
 				state.phase = 'bonus';
-				// Pick second letter (index 1) as hint — it's always the second char
-				state.bonusLetter = target.length > 1 ? target[1] : null;
+				const bonus = pickBonusPosition(target, newGuesses);
+				state.bonusLetter = bonus?.letter ?? null;
+				state.bonusPosition = bonus?.position ?? null;
 				state.roundStartedAt = Date.now();
 				state.guesses = newGuesses;
 				cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
@@ -243,6 +269,7 @@ export const actions: Actions = {
 					revealedLetters: gameState.revealedLetters,
 					phase: 'bonus' as const,
 					bonusLetter: state.bonusLetter,
+					bonusPosition: state.bonusPosition,
 					markedNumbers: state.markedNumbers,
 					bingo: state.bingo
 				};
@@ -270,7 +297,8 @@ export const actions: Actions = {
 			word: lost ? target : undefined,
 			markedNumbers: state.markedNumbers,
 			bingo: state.bingo,
-			bonusLetter: state.bonusLetter as string | null
+			bonusLetter: state.bonusLetter as string | null,
+			bonusPosition: state.bonusPosition as number | null
 		};
 	},
 
@@ -287,6 +315,7 @@ export const actions: Actions = {
 
 		const state: LingoState = JSON.parse(stateCookie);
 		if (state.bonusLetter === undefined) state.bonusLetter = null;
+		if (state.bonusPosition === undefined) state.bonusPosition = null;
 
 		return await handleTimerExpiry(state, cookies, target, wordLength, locals);
 	},
@@ -393,7 +422,7 @@ async function handleTimerExpiry(
 			cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
 			return { timedOut: true, phase: 'done' as const, word: target, roundNumber: state.roundNumber, bonusLetter: state.bonusLetter };
 		} else {
-			const newWord = await getRandomWord(wordLength);
+			const newWord = getGameWord(wordLength, state.roundNumber + 1);
 			state.roundNumber += 1;
 			state.guesses = [];
 			state.missedAttempts = 0;
@@ -401,9 +430,10 @@ async function handleTimerExpiry(
 			state.ballPit = generateBallPit();
 			state.roundStartedAt = Date.now();
 			state.bonusLetter = null;
+			state.bonusPosition = null;
 			cookies.set(WORD_COOKIE, `${wordLength}:${newWord}`, COOKIE_OPTS);
 			cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
-			return { timedOut: true, phase: 'guessing' as const, word: target, roundNumber: state.roundNumber, bonusLetter: null as string | null };
+			return { timedOut: true, phase: 'guessing' as const, word: target, roundNumber: state.roundNumber, bonusLetter: null as string | null, bonusPosition: null as number | null };
 		}
 	}
 
@@ -411,19 +441,21 @@ async function handleTimerExpiry(
 	state.missedAttempts += 1;
 	const totalAttempts = state.guesses.length + state.missedAttempts;
 
-	if (totalAttempts >= MAX_ATTEMPTS) {
+	if (totalAttempts >= LINGO_MAX_ATTEMPTS) {
 		// Enter bonus phase
 		state.phase = 'bonus';
-		state.bonusLetter = target.length > 1 ? target[1] : null;
+		const bonus = pickBonusPosition(target, state.guesses);
+		state.bonusLetter = bonus?.letter ?? null;
+		state.bonusPosition = bonus?.position ?? null;
 		state.roundStartedAt = Date.now();
 		cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
-		return { timedOut: true, phase: 'bonus' as const, bonusLetter: state.bonusLetter, roundNumber: state.roundNumber };
+		return { timedOut: true, phase: 'bonus' as const, bonusLetter: state.bonusLetter, bonusPosition: state.bonusPosition, roundNumber: state.roundNumber };
 	}
 
 	// Still more attempts — reset the timer
 	state.roundStartedAt = Date.now();
 	cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);
-	return { timedOut: true, phase: 'guessing' as const, bonusLetter: null as string | null, roundNumber: state.roundNumber };
+	return { timedOut: true, phase: 'guessing' as const, bonusLetter: null as string | null, bonusPosition: null as number | null, roundNumber: state.roundNumber };
 }
 
 async function advanceRound(
@@ -436,8 +468,8 @@ async function advanceRound(
 		return;
 	}
 
-	const wordLength = 6;
-	const newWord = await getRandomWord(wordLength);
+	const wordLength = LINGO_WORD_LENGTH;
+	const newWord = getGameWord(wordLength, state.roundNumber + 1);
 
 	state.roundNumber += 1;
 	state.guesses = [];
@@ -446,6 +478,7 @@ async function advanceRound(
 	state.ballPit = generateBallPit();
 	state.roundStartedAt = Date.now();
 	state.bonusLetter = null;
+	state.bonusPosition = null;
 
 	cookies.set(WORD_COOKIE, `${wordLength}:${newWord}`, COOKIE_OPTS);
 	cookies.set(STATE_COOKIE, JSON.stringify(state), COOKIE_OPTS);

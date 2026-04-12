@@ -26,3 +26,6 @@ vite.config.ts.timestamp-*
 # VS code
 .vscode/settings.json
 .vscode
+
+# Claude
+*.claude
