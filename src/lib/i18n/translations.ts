@@ -1,4 +1,4 @@
-export type Lang = 'es' | 'en';
+export type Lang = 'es' | 'en' | 'nl';
 
 export const translations = {
 	es: {
@@ -312,6 +312,156 @@ export const translations = {
 			title: 'PALINGO',
 			message: 'You need an internet connection to play.',
 			hint: 'Connect and reload the page.'
+		}
+	},
+
+	nl: {
+		nav: {
+			home: 'Home',
+			account: 'account',
+			signIn: 'inloggen',
+			back: '← Home'
+		},
+
+		home: {
+			title: 'PALINGO',
+			subtitle: 'Spaanse woordspellen',
+			palabraTitle: 'Woord van de Dag',
+			palabraDesc: 'Raad het woord in 6 beurten · 4-7 letters',
+			lingoTitle: 'Lingo',
+			lingoDesc: 'Eerste letter zichtbaar · 30 seconden · Bingo',
+			superLingoTitle: 'SuperLingo',
+			superLingoDesc: 'Woordrondes + letterballen · Raad het puzzelwoord',
+			loginNudge: 'Log in',
+			loginNudgeSuffix: 'om je voortgang op te slaan'
+		},
+
+		login: {
+			title: 'PALINGO',
+			subtitle: 'Log in om je voortgang op te slaan',
+			continueGoogle: 'Doorgaan met Google',
+			continueApple: 'Doorgaan met Apple',
+			continueMicrosoft: 'Doorgaan met Microsoft',
+			loading: '...',
+			anonymousNote: 'Je kunt spelen zonder account — inloggen bewaart alleen je voortgang.',
+			back: '← Home'
+		},
+
+		palabra: {
+			title: 'Woord van de Dag',
+			subtitle: (n: number) => `Raad het woord van ${n} letters`,
+			nextWord: 'Volgend woord →',
+			loginNudge: 'Log in om je reeks op te slaan',
+			statsWins: 'Gewonnen',
+			statsLosses: 'Verloren',
+			statsStreak: 'Reeks',
+			statsBest: 'Beste',
+			messageWon: 'Goed geraden!',
+			messageLost: 'Het woord was:',
+			errorNoWord: 'Geen actief woord',
+			errorWrongLength: (n: number) => `Het woord moet ${n} letters hebben`,
+			errorGameOver: 'Dit spel is al afgelopen'
+		},
+
+		lingo: {
+			title: 'LINGO',
+			roundCounter: (current: number, total: number) => `Woord ${current}/${total}`,
+			wordsCorrect: (n: number) => `${n} goed`,
+			points: 'punten',
+			messageWon: 'Goed! +1 nummer',
+			messageLost: 'Het was:',
+			messageNextWord: 'Volgend woord...',
+			messageTimeout: 'Tijd is op!',
+			messageBonusRound: 'Bonusronde! Extra letterhint',
+			messageGreenBall: '+1 nummer op je kaart',
+			messageGoldBall: 'Goud — kies een nummer om te markeren',
+			messageNumberMarked: 'Nummer gemarkeerd!',
+			messageBingo: 'BINGO!',
+			bonusRound: 'BONUS',
+			nextWord: 'Volgend woord →',
+			newGame: 'Nieuw spel',
+			loginNudge: 'Log in om je voortgang op te slaan',
+			statsBingos: "Bingo's",
+			statsStreak: 'Reeks',
+			statsBest: 'Beste reeks',
+			gameOverTitle: 'Spel afgelopen',
+			gameOverBingo: 'Bingo!',
+			gameOverSummary: (won: number, total: number) => `${won} van ${total} woorden goed`,
+			errorNoWord: 'Geen actief woord',
+			errorWrongLength: (n: number) => `Het woord moet ${n} letters hebben`,
+			errorWrongPhase: 'Je bent niet in de raadfase',
+			errorTimeout: 'Tijd is op!',
+			errorNoBalls: 'Je bent niet in de ballenfase',
+			errorInvalidBall: 'Ongeldige bal',
+			errorInvalidNumber: 'Ongeldig nummer',
+			errorNoState: 'Geen status',
+			errorGoldPhase: 'Je bent niet in de goudfase'
+		},
+
+		superLingo: {
+			title: 'SUPERLINGO',
+			roundCounter: (current: number, total: number) => `Woord ${current}/${total}`,
+			wordsCorrect: (n: number) => `${n} goed`,
+			messageWon: 'Goed geraden! Pak een bal',
+			messageLost: 'Het was:',
+			messageNextWord: 'Volgend woord...',
+			messageTimeout: 'Tijd is op!',
+			messageBonusRound: 'Bonusronde! Extra letterhint',
+			bonusRound: 'BONUS',
+			puzzleWord: 'Puzzelwoord',
+			puzzleWordGuess: 'Raad het puzzelwoord',
+			puzzleWordCorrect: 'Puzzelwoord goed! Gewonnen!',
+			puzzleWordWrong: 'Fout — speel verder',
+			ballEmpty: 'Lege bal',
+			newGame: 'Nieuw spel',
+			loginNudge: 'Log in om je voortgang op te slaan',
+			gameOverTitle: 'Spel afgelopen',
+			gameOverWon: 'Puzzelwoord opgelost!',
+			gameOverSummary: (won: number, total: number) => `${won} van ${total} woorden goed`,
+			statsBest: 'Beste reeks',
+			statsStreak: 'Reeks',
+			statsWins: 'Overwinningen'
+		},
+
+		ballPit: {
+			title: 'Pak een bal!',
+			subtitle: 'Kies 1 bal',
+			legendBlue: (n: number) => `${n} blauw`,
+			legendGreen: (n: number) => `${n} groen`,
+			legendGold: (n: number) => `${n} goud`,
+			tooltipBlue: 'Blauw — niks extra',
+			tooltipGreen: 'Groen — +1 nummer op je kaart',
+			tooltipGold: '🥇 Goud — kies zelf welk nummer je markeert'
+		},
+
+		goldBall: {
+			emoji: '🥇',
+			title: 'Gouden bal',
+			subtitle: 'Kies een nummer om te markeren op je kaart'
+		},
+
+		bingoCard: {
+			legendWords: (n: number) => `${n} woord${n !== 1 ? 'en' : ''}`,
+			legendBalls: (n: number) => `${n} bal${n !== 1 ? 'len' : ''}`
+		},
+
+		timer: {
+			label: 'seconden'
+		},
+
+		keyboard: {
+			enter: 'ENTER',
+			backspace: '⌫'
+		},
+
+		offline: {
+			banner: 'Geen verbinding — je hebt internet nodig om te spelen'
+		},
+
+		offlinePage: {
+			title: 'PALINGO',
+			message: 'Je hebt een internetverbinding nodig om te spelen.',
+			hint: 'Maak verbinding en herlaad de pagina.'
 		}
 	}
 } as const;

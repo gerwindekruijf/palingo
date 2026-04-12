@@ -1,11 +1,15 @@
 <script lang="ts">
 	import { langStore } from '$lib/i18n/lang.svelte';
+
+	const flags = { es: '🇪🇸', en: '🇬🇧', nl: '🇳🇱' } as const;
+	const nextLang = { es: 'en', en: 'nl', nl: 'es' } as const;
+	const titles = { es: 'Switch to English', en: 'Wissel naar Nederlands', nl: 'Cambiar a Español' } as const;
 </script>
 
 <button
-	onclick={() => langStore.toggle()}
-	class="text-xs font-semibold uppercase tracking-wide text-gray-400 hover:text-gray-700 transition-colors px-1 cursor-pointer"
-	title={langStore.current === 'es' ? 'Switch to English' : 'Cambiar a Español'}
+	onclick={() => langStore.set(nextLang[langStore.current])}
+	class="text-lg px-1 cursor-pointer hover:scale-110 transition-transform"
+	title={titles[langStore.current]}
 >
-	{langStore.current === 'es' ? 'EN' : 'ES'}
+	{flags[langStore.current]}
 </button>

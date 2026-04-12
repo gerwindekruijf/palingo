@@ -1,39 +1,57 @@
 # Palingo
 
-A Spanish word game app with two games built on the same word engine.
+A Spanish word game app with three games built on the same word engine.
 
 ## Games
 
-### Palabra del Día
-A Wordle-style game. Guess a Spanish word in 6 tries. Choose a word length of 4, 5, 6, or 7 letters. Tiles reveal after each guess:
+All three games use the same word engine. Tiles reveal after each guess:
 
 - **Green** — correct letter, correct position
 - **Orange** — correct letter, wrong position
 - **Gray** — letter not in the word
 
-Login is optional. When logged in, wins, losses, and streaks are saved per word length.
+### Palabra del Día
+
+A Wordle-style game. Pick a word length (4, 5, 6, or 7 letters) and guess the word in 6 attempts. No timer, no rounds — just you and the word. On win or loss a new word is loaded automatically.
+
+Stats (wins, losses, streak) are tracked per word length in the browser session, or saved to your account when logged in.
 
 ### Lingo
-A TV-show inspired game built on top of the same word engine. A full game consists of 5 rounds.
 
-Rules:
-- The **first letter** of the target word is always shown
-- You have **15 seconds** per guess attempt (enforced server-side)
-- **Guess correctly** → a random number on your bingo card is pre-filled, then you pick one ball from the ball pit
-- **Fail a word** → move directly to the next round, no ball phase
+A TV-show inspired game with 5 rounds of 6-letter words, a bingo card, and a ball pit. The goal is to complete a bingo.
 
-**Ball pit** — 16 balls total:
-- 11 blue — nothing
-- 4 green — automatically mark one random card number
-- 1 gold — you choose which card number to mark
+**Each round:**
+1. **Guess** — The first letter is pre-revealed. You have 6 attempts and **60 seconds** to guess the word.
+2. **Bonus** — If all 6 attempts fail, a bonus row unlocks with a second letter hint and **80 seconds** on the clock.
+3. **Ball pit** — Guess correctly and you pick 1 ball from a pit of 16:
+   - 11 blue — nothing
+   - 4 green — auto-marks a random number on your bingo card
+   - 1 gold — you choose which number to mark
+4. A correct guess also auto-marks one random card number before the ball phase.
 
-**Bingo card** — classic 5×5 B-I-N-G-O with center FREE square. Complete a row, column, or diagonal to win.
+**Bingo card** — 5×5 B-I-N-G-O grid (numbers 1–75, center FREE). Complete any row, column, or diagonal to win. Numbers are marked from word guesses, green balls, and gold balls.
 
-After all 5 rounds, the final bingo card result is shown with an option to start a new game.
+**Scoring** (logged-in users): 10 points per word guessed, +25 bonus for bingo.
+
+### SuperLingo
+
+An advanced variant with 5 rounds of 7-letter words and a hidden **puzzle word** (12–13 letters). The goal is to solve the puzzle word.
+
+**Each round:**
+1. **Guess** — First letter shown, 7 attempts, **60 seconds**.
+2. **Bonus** — If all 7 fail, a bonus row with a second letter hint and 60 seconds.
+3. **Letter balls** — Guess correctly and pick 1 ball from a pit of 15 (shared across all rounds):
+   - 10–11 single-letter balls — reveals one letter of the puzzle word
+   - 1 double-letter ball — reveals two letters at once
+   - 2 empty balls — nothing
+
+**Puzzle word** — Displayed as a row of tiles, hidden positions show `?`. Once at least one letter is revealed, you can attempt to guess the full puzzle word at any time. Guess correctly to win early; a wrong guess has no penalty.
+
+**Scoring** (logged-in users): 10 points per word guessed, +50 bonus for solving the puzzle word.
 
 ## Languages
 
-The UI is available in **Spanish** (default) and **English**. Toggle between them using the language button in the header. All words in play are always Spanish.
+The UI is available in **Spanish** (default), **English**, and **Dutch**. Toggle between them using the flag buttons in the header. All words in play are always Spanish.
 
 ## Tech Stack
 
@@ -41,7 +59,7 @@ The UI is available in **Spanish** (default) and **English**. Toggle between the
 - [TypeScript](https://www.typescriptlang.org/)
 - [Tailwind CSS v4](https://tailwindcss.com/)
 - [PostgreSQL](https://www.postgresql.org/) + [Drizzle ORM](https://orm.drizzle.team/)
-- [Better Auth](https://www.better-auth.com/) — email + password authentication
+- [Better Auth](https://www.better-auth.com/) — social login (Google, Apple, Microsoft)
 - PWA — installable, requires internet connection
 
 ## Setup
@@ -126,11 +144,9 @@ For deployment, install the appropriate [SvelteKit adapter](https://kit.svelte.d
 
 Authentication is optional — all games are playable without an account.
 
-Creating an account enables:
-- Win/loss/streak tracking for Palabra del Día
-- Win tracking for Lingo
+Creating an account enables persistent score and streak tracking across all three games.
 
-Sign up with any email address and password on the `/login` page.
+Sign in with Google, Apple, or Microsoft on the `/login` page.
 
 ## PWA
 
@@ -150,9 +166,10 @@ src/
     components/
       word/                       # Shared tile/row/board/keyboard components
       lingo/                      # CountdownTimer, BallPit, BingoCard
+      superlingo/                 # LetterBallPit, PuzzleWord
       LangToggle.svelte           # Language switcher
     i18n/
-      translations.ts             # ES + EN strings
+      translations.ts             # ES + EN + NL strings
       lang.svelte.ts              # Reactive language store
     server/
       db/
@@ -163,6 +180,7 @@ src/
     login/                        # Auth pages
     palabra-del-dia/              # Wordle game
     lingo/                        # Lingo game
+    superlingo/                   # SuperLingo game
 static/
   manifest.json                   # PWA manifest
   sw.js                           # Service worker

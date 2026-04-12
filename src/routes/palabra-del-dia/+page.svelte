@@ -62,11 +62,45 @@
 		} catch {}
 	}
 
+	// ── DB scores (logged-in users) ─────────────────────────────────────────
+	function getScores(len: number): SessionScores {
+		if (data.user && data.userScores && data.userScores[len]) {
+			return data.userScores[len];
+		}
+		return loadSessionScores(len);
+	}
+
+	async function persistScore(len: number, won: boolean) {
+		// Optimistically update local scores
+		const current = scores;
+		if (won) {
+			const newStreak = current.currentStreak + 1;
+			scores = { ...current, wins: current.wins + 1, currentStreak: newStreak, bestStreak: Math.max(current.bestStreak, newStreak) };
+		} else {
+			scores = { ...current, losses: current.losses + 1, currentStreak: 0 };
+		}
+
+		if (data.user) {
+			// Save to DB via form action
+			try {
+				const formData = new FormData();
+				formData.set('wordLength', String(len));
+				formData.set('won', String(won));
+				await fetch('?/saveScore', { method: 'POST', body: formData });
+			} catch {
+				// DB save failed silently — optimistic update already applied
+			}
+		}
+
+		// Always save to session storage as well
+		saveSessionScores(len, scores);
+	}
+
 	// ── Game state ──────────────────────────────────────────────────────────
 	const initialWordLength = untrack(() => data.wordLength);
 	let wordLength = $state(initialWordLength);
 	let gameState = $state<GameState>(createGameState(initialWordLength));
-	let scores = $state<SessionScores>(loadSessionScores(initialWordLength));
+	let scores = $state<SessionScores>(getScores(initialWordLength));
 
 	let currentInput = $state<string[]>([]);
 	let submitting = $state(false);
@@ -89,7 +123,7 @@
 	$effect(() => {
 		const gs = getOrCreateGame(wordLength, data.words as Record<number, string>);
 		gameState = gs;
-		scores = loadSessionScores(wordLength);
+		scores = getScores(wordLength);
 		currentInput = [];
 
 	});
@@ -158,24 +192,12 @@
 			saveSessionState(wordLength, newState);
 
 			if (newState.status === 'won') {
-				const s = loadSessionScores(wordLength);
-				const newStreak = s.currentStreak + 1;
-				const updated = {
-					...s,
-					wins: s.wins + 1,
-					currentStreak: newStreak,
-					bestStreak: Math.max(s.bestStreak, newStreak)
-				};
-				saveSessionScores(wordLength, updated);
-				scores = updated;
+				persistScore(wordLength, true);
 				winWord = target;
 				showWinOverlay = true;
 				winOverlayTimer = setTimeout(() => advanceFromWin(), WIN_OVERLAY_DELAY);
 			} else if (newState.status === 'lost') {
-				const s = loadSessionScores(wordLength);
-				const updated = { ...s, losses: s.losses + 1, currentStreak: 0 };
-				saveSessionScores(wordLength, updated);
-				scores = updated;
+				persistScore(wordLength, false);
 				winWord = target;
 				showLostOverlay = true;
 			}

@@ -4,8 +4,8 @@ import { browser } from '$app/environment';
 const STORAGE_KEY = 'palingo_lang';
 
 function createLang() {
-	const initial: Lang =
-		browser && (localStorage.getItem(STORAGE_KEY) as Lang) === 'en' ? 'en' : 'es';
+	const stored = browser ? localStorage.getItem(STORAGE_KEY) : null;
+	const initial: Lang = stored === 'en' || stored === 'nl' ? stored : 'es';
 
 	let lang = $state<Lang>(initial);
 
