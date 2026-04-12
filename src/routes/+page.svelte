@@ -70,10 +70,5 @@
 			</a>
 		</div>
 
-		<!-- Auth link -->
-		<p class="text-xs text-gray-400">
-			<a href="/login" class="underline hover:text-gray-600">{t.loginNudge}</a>
-			{t.loginNudgeSuffix}
-		</p>
 	</div>
 </div>

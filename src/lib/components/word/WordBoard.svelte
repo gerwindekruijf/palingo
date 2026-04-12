@@ -31,7 +31,7 @@
 			{guess}
 			{currentInput}
 			{isCurrentRow}
-			firstLetterLocked={rowIndex === 0 ? firstLetterLocked : undefined}
+			firstLetterLocked={(isCurrentRow || rowIndex === 0) ? firstLetterLocked : undefined}
 			lockedPositions={isCurrentRow ? lockedPositions : {}}
 			shake={isCurrentRow && shakeRow}
 			animateReveal={rowIndex === revealingRow}

@@ -7,7 +7,27 @@ export const translations = {
 			home: 'Inicio',
 			account: 'cuenta',
 			signIn: 'entrar',
-			back: '← Inicio'
+			back: '← Inicio',
+			scores: 'Puntuaciones',
+			signOut: 'Cerrar sesión',
+			footer: {
+				copyright: 'Todos los derechos reservados',
+				licence: 'Licencia Apache 2.0',
+				version: 'versión'
+			}
+		},
+
+		scores: {
+			title: 'Puntuaciones',
+			subtitle: 'Tu rendimiento en cada juego',
+			wins: 'Ganadas',
+			losses: 'Perdidas',
+			totalScore: 'Puntuación total',
+			currentStreak: 'Racha actual',
+			bestStreak: 'Mejor racha',
+			wordLength: 'letras',
+			noScores: 'Aún no hay puntuaciones',
+			loginPrompt: 'Inicia sesión para ver tus puntuaciones'
 		},
 
 		// Home page
@@ -169,7 +189,27 @@ export const translations = {
 			home: 'Home',
 			account: 'account',
 			signIn: 'sign in',
-			back: '← Home'
+			back: '← Home',
+			scores: 'Scores',
+			signOut: 'Sign out',
+			footer: {
+				copyright: 'All rights reserved',
+				licence: 'Apache 2.0 Licence',
+				version: 'version'
+			}
+		},
+
+		scores: {
+			title: 'Scores',
+			subtitle: 'Your performance across each game',
+			wins: 'Wins',
+			losses: 'Losses',
+			totalScore: 'Total score',
+			currentStreak: 'Current streak',
+			bestStreak: 'Best streak',
+			wordLength: 'letters',
+			noScores: 'No scores yet',
+			loginPrompt: 'Sign in to see your scores'
 		},
 
 		home: {
@@ -320,7 +360,27 @@ export const translations = {
 			home: 'Home',
 			account: 'account',
 			signIn: 'inloggen',
-			back: '← Home'
+			back: '← Home',
+			scores: 'Scores',
+			signOut: 'Uitloggen',
+			footer: {
+				copyright: 'Alle rechten voorbehouden',
+				licence: 'Apache 2.0 Licentie',
+				version: 'versie'
+			}
+		},
+
+		scores: {
+			title: 'Scores',
+			subtitle: 'Je prestaties per spel',
+			wins: 'Gewonnen',
+			losses: 'Verloren',
+			totalScore: 'Totaalscore',
+			currentStreak: 'Huidige reeks',
+			bestStreak: 'Beste reeks',
+			wordLength: 'letters',
+			noScores: 'Nog geen scores',
+			loginPrompt: 'Log in om je scores te zien'
 		},
 
 		home: {

@@ -2,29 +2,28 @@
 	import { langStore } from '$lib/i18n/lang.svelte';
 
 	interface Props {
-		seconds: number;
+		remaining: number;
+		maxSeconds: number;
 		active: boolean;
 		onExpire?: () => void;
+		onTick?: (remaining: number) => void;
 	}
 
-	let { seconds, active, onExpire }: Props = $props();
-
-	let remaining = $state(0);
+	let { remaining, maxSeconds, active, onExpire, onTick }: Props = $props();
 
 	const radius = 28;
 	const circumference = 2 * Math.PI * radius;
 
-	const progress = $derived(remaining / seconds * circumference);
+	const progress = $derived((remaining / maxSeconds) * circumference);
 	const isUrgent = $derived(remaining <= 5);
 
 	$effect(() => {
 		if (!active) return;
-		remaining = seconds;
 
 		const interval = setInterval(() => {
-			remaining -= 1;
-			if (remaining <= 0) {
-				remaining = 0;
+			const next = remaining - 1;
+			onTick?.(next);
+			if (next <= 0) {
 				clearInterval(interval);
 				onExpire?.();
 			}

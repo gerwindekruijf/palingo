@@ -1,6 +1,6 @@
 import type { GameState } from './word-engine';
 import { createGameState } from './word-engine';
-export { ROUNDS_PER_GAME, TIMER_SECONDS } from '$lib/config/constants';
+export { ROUNDS_PER_GAME } from '$lib/config/constants';
 
 export interface LingoRoundState extends GameState {
 	firstLetter: string;

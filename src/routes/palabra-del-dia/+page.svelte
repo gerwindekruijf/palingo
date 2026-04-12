@@ -1,20 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import WordBoard from '$lib/components/word/WordBoard.svelte';
-	import WordKeyboard from '$lib/components/word/WordKeyboard.svelte';
-	import WordCorrectOverlay from '$lib/components/word/WordCorrectOverlay.svelte';
+	import WordGameBoard from '$lib/components/word/WordGameBoard.svelte';
 	import LangToggle from '$lib/components/LangToggle.svelte';
 	import { langStore } from '$lib/i18n/lang.svelte';
-	import { applyGuess, createGameState } from '$lib/game/word-engine';
+	import { createGameState } from '$lib/game/word-engine';
 	import type { GameState } from '$lib/game/word-engine';
 	import type { PageData } from './$types';
+	import { untrack } from 'svelte';
+	import { WORD_LENGTHS } from '$lib/config/constants';
 
 	let { data }: { data: PageData } = $props();
 
 	const t = $derived(langStore.t.palabra);
 	const tNav = $derived(langStore.t.nav);
-	import { untrack } from 'svelte';
-	import { WORD_LENGTHS, FLIP_DURATION, FLIP_BUFFER, WIN_OVERLAY_DELAY } from '$lib/config/constants';
 	const lengths = WORD_LENGTHS;
 
 	// ── Session storage keys ────────────────────────────────────────────────
@@ -23,6 +21,23 @@
 	}
 	function scoresKey(len: number) {
 		return `palabra_scores_${len}`;
+	}
+	function gameIndexKey(len: number) {
+		return `palabra_gameindex_${len}`;
+	}
+
+	function loadGameIndex(len: number): number {
+		try {
+			return parseInt(sessionStorage.getItem(gameIndexKey(len)) ?? '0') || 0;
+		} catch {
+			return 0;
+		}
+	}
+
+	function saveGameIndex(len: number, idx: number) {
+		try {
+			sessionStorage.setItem(gameIndexKey(len), String(idx));
+		} catch {}
 	}
 
 	interface SessionScores {
@@ -71,28 +86,28 @@
 	}
 
 	async function persistScore(len: number, won: boolean) {
-		// Optimistically update local scores
 		const current = scores;
 		if (won) {
 			const newStreak = current.currentStreak + 1;
-			scores = { ...current, wins: current.wins + 1, currentStreak: newStreak, bestStreak: Math.max(current.bestStreak, newStreak) };
+			scores = {
+				...current,
+				wins: current.wins + 1,
+				currentStreak: newStreak,
+				bestStreak: Math.max(current.bestStreak, newStreak)
+			};
 		} else {
 			scores = { ...current, losses: current.losses + 1, currentStreak: 0 };
 		}
 
 		if (data.user) {
-			// Save to DB via form action
 			try {
 				const formData = new FormData();
 				formData.set('wordLength', String(len));
 				formData.set('won', String(won));
 				await fetch('?/saveScore', { method: 'POST', body: formData });
-			} catch {
-				// DB save failed silently — optimistic update already applied
-			}
+			} catch {}
 		}
 
-		// Always save to session storage as well
 		saveSessionScores(len, scores);
 	}
 
@@ -101,135 +116,69 @@
 	let wordLength = $state(initialWordLength);
 	let gameState = $state<GameState>(createGameState(initialWordLength));
 	let scores = $state<SessionScores>(getScores(initialWordLength));
+	let target = $state('');
+	let wordGameBoard: WordGameBoard;
 
-	let currentInput = $state<string[]>([]);
-	let submitting = $state(false);
-	let shakeRow = $state(false);
-	let revealingRow = $state(-1);
-	let showWinOverlay = $state(false);
-	let showLostOverlay = $state(false);
-	let winWord = $state('');
-	let winOverlayTimer: ReturnType<typeof setTimeout> | null = null;
-
-	function getOrCreateGame(len: number, words: Record<number, string>): GameState {
+	function getOrCreateGame(len: number, words: Record<number, string>): { state: GameState; target: string } {
 		const saved = loadSessionState(len);
-		if (saved && saved.wordLength === len) return saved;
+		if (saved && saved.wordLength === len) {
+			const t = (saved as GameState & { target?: string }).target ?? words[len];
+			return { state: saved, target: t };
+		}
 		const fresh = createGameState(len);
 		(fresh as GameState & { target: string }).target = words[len];
 		saveSessionState(len, fresh);
-		return fresh;
+		return { state: fresh, target: words[len] };
 	}
 
 	$effect(() => {
-		const gs = getOrCreateGame(wordLength, data.words as Record<number, string>);
-		gameState = gs;
+		const result = getOrCreateGame(wordLength, data.words as Record<number, string>);
+		gameState = result.state;
+		target = result.target;
 		scores = getScores(wordLength);
-		currentInput = [];
-
+		wordGameBoard?.resetInput();
 	});
 
-	// ── Flip animation constants ─────────────────────────────────────────────
-
-	// ── Input handling ───────────────────────────────────────────────────────
-	function handleKey(key: string) {
-		if (gameState.status !== 'playing' || submitting) return;
-		if (key === 'Backspace') {
-			currentInput = currentInput.slice(0, -1);
-		} else if (key === 'Enter') {
-			submitGuess();
-		} else if (/^[a-zA-ZñÑ]$/.test(key) && currentInput.length < wordLength) {
-			currentInput = [...currentInput, key.toLowerCase()];
-		}
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.ctrlKey || e.metaKey || e.altKey) return;
-		if (showWinOverlay) {
-			advanceFromWin();
-			return;
-		}
-		handleKey(e.key === 'Enter' ? 'Enter' : e.key === 'Backspace' ? 'Backspace' : e.key);
-	}
-
-	async function submitGuess() {
-		if (currentInput.length !== wordLength || submitting) return;
-
-		const guess = currentInput.join('');
-		const target = (gameState as GameState & { target?: string }).target ?? '';
-
-		if (!target) return;
-
-		submitting = true;
+	// ── Submit handler ──────────────────────────────────────────────────────
+	async function handleSubmitGuess(guess: string) {
+		if (!target) return { valid: false as const };
 
 		try {
 			const res = await fetch(`/api/validate-word?word=${encodeURIComponent(guess)}`);
 			const { valid } = await res.json();
-			if (!valid) {
-				shakeRow = true;
-				setTimeout(() => (shakeRow = false), 600);
-				submitting = false;
-				return;
-			}
+			if (!valid) return { valid: false as const };
 		} catch {
 			// If validation fails, allow the guess through
 		}
 
-		const newState = applyGuess(gameState, guess, target);
-		(newState as GameState & { target: string }).target = target;
-
-		const newRowIndex = newState.guesses.length - 1;
-
-		gameState = { ...newState, status: 'playing', revealedLetters: gameState.revealedLetters };
-		currentInput = [];
-		revealingRow = newRowIndex;
-
-		const totalFlipMs = (wordLength - 1) * FLIP_DURATION + 500 + FLIP_BUFFER;
-
-		setTimeout(() => {
-			revealingRow = -1;
-			submitting = false;
-			gameState = newState;
-			saveSessionState(wordLength, newState);
-
-			if (newState.status === 'won') {
-				persistScore(wordLength, true);
-				winWord = target;
-				showWinOverlay = true;
-				winOverlayTimer = setTimeout(() => advanceFromWin(), WIN_OVERLAY_DELAY);
-			} else if (newState.status === 'lost') {
-				persistScore(wordLength, false);
-				winWord = target;
-				showLostOverlay = true;
-			}
-		}, totalFlipMs);
+		return { valid: true as const, target };
 	}
 
-	function advanceFromWin() {
-		if (winOverlayTimer) {
-			clearTimeout(winOverlayTimer);
-			winOverlayTimer = null;
+	function handleGuessApplied(newState: GameState) {
+		(newState as GameState & { target: string }).target = target;
+		saveSessionState(wordLength, newState);
+
+		if (newState.status === 'won') {
+			persistScore(wordLength, true);
+		} else if (newState.status === 'lost') {
+			persistScore(wordLength, false);
 		}
-		showWinOverlay = false;
-		startNewGame();
 	}
 
 	function startNewGame() {
 		try {
 			sessionStorage.removeItem(stateKey(wordLength));
 		} catch {}
-		goto(`/palabra-del-dia?length=${wordLength}`, { invalidateAll: true });
+		const nextIndex = loadGameIndex(wordLength) + 1;
+		saveGameIndex(wordLength, nextIndex);
+		goto(`/palabra-del-dia?length=${wordLength}&gameIndex=${nextIndex}`, { invalidateAll: true });
 	}
 
 	function switchLength(len: number) {
-		revealingRow = -1;
-		submitting = false;
-
 		wordLength = len;
 		goto(`/palabra-del-dia?length=${len}`, { replaceState: true, noScroll: true });
 	}
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 <div class="min-h-screen flex flex-col items-center bg-bg-palabra px-4 pt-16">
 	<!-- Header -->
@@ -251,7 +200,7 @@
 	</div>
 
 	<!-- Word length selector -->
-	<div class="flex justify-center gap-2 mt-4">
+	<div class="flex justify-center items-center gap-2 mt-5 min-h-20">
 		{#each lengths as len}
 			<button
 				onclick={() => switchLength(len)}
@@ -265,27 +214,19 @@
 		{/each}
 	</div>
 
-
-	<!-- Board -->
-	<div class="mt-4 mb-4">
-		<WordBoard
-			{gameState}
-			{currentInput}
-			{shakeRow}
-			{revealingRow}
-			activeInputIndex={gameState.status === 'playing' ? currentInput.length : -1}
-		/>
-	</div>
-
-	<!-- Keyboard -->
-	<div class="w-full max-w-md">
-		<WordKeyboard
-			revealedLetters={gameState.revealedLetters}
-			onKey={handleKey}
-			disabled={gameState.status !== 'playing' || submitting}
-		/>
-	</div>
-
+	<!-- Game board + keyboard -->
+	<WordGameBoard
+		bind:this={wordGameBoard}
+		bind:gameState
+		onSubmitGuess={handleSubmitGuess}
+		onGuessApplied={handleGuessApplied}
+		onWin={() => startNewGame()}
+		onLoss={() => startNewGame()}
+		winMessage={t.messageWon}
+		lostMessage={t.messageLost}
+		lostWord={target}
+		continueText={t.nextWord}
+	/>
 
 	<!-- Stats -->
 	<div class="mt-8 grid grid-cols-4 gap-3 text-center max-w-xs w-full">
@@ -307,20 +248,3 @@
 		</div>
 	</div>
 </div>
-
-<WordCorrectOverlay
-	show={showWinOverlay}
-	word={winWord}
-	messageText={t.messageWon}
-	continueText={t.nextWord}
-	onDismiss={advanceFromWin}
-/>
-
-<WordCorrectOverlay
-	show={showLostOverlay}
-	word={winWord}
-	messageText={t.messageLost}
-	continueText={t.nextWord}
-	variant="lost"
-	onDismiss={() => { showLostOverlay = false; startNewGame(); }}
-/>

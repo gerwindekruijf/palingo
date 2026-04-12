@@ -1,8 +1,11 @@
 <script lang="ts">
 	import '../app.css';
 	import { langStore } from '$lib/i18n/lang.svelte';
+	import UserMenu from '$lib/components/UserMenu.svelte';
 
-	let { children } = $props();
+	let { children, data } = $props();
+
+	const footer = $derived(langStore.t.nav.footer);
 
 	let offline = $state(false);
 
@@ -25,4 +28,16 @@
 	</div>
 {/if}
 
+<div class="fixed top-3 right-3 z-40">
+	<UserMenu user={data.user} />
+</div>
+
 {@render children()}
+
+<footer class="fixed bottom-4 inset-x-0 text-center text-xs text-gray-400 flex items-center justify-center gap-3 flex-wrap pointer-events-none">
+	<span>&copy; {new Date().getFullYear()} Palingo. {footer.copyright}</span>
+	<span class="text-gray-300">|</span>
+	<span>{footer.licence}</span>
+	<span class="text-gray-300">|</span>
+	<span>{footer.version} {data.version}</span>
+</footer>

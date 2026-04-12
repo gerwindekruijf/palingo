@@ -8,6 +8,7 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const lengthParam = Number(url.searchParams.get('length') ?? '5');
 	const wordLength = [4, 5, 6, 7].includes(lengthParam) ? lengthParam : 5;
+	const gameIndex = Math.max(0, parseInt(url.searchParams.get('gameIndex') ?? '0') || 0);
 
 	// Load scores for all word lengths if logged in
 	let userScores: Record<number, { wins: number; losses: number; currentStreak: number; bestStreak: number }> | null = null;
@@ -35,10 +36,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	return {
 		wordLength,
 		words: {
-			4: getWord(4),
-			5: getWord(5),
-			6: getWord(6),
-			7: getWord(7)
+			4: getWord(4, gameIndex),
+			5: getWord(5, gameIndex),
+			6: getWord(6, gameIndex),
+			7: getWord(7, gameIndex)
 		} as Record<number, string>,
 		user: locals.user ?? null,
 		userScores
