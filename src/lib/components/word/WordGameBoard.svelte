@@ -44,6 +44,8 @@
 		continueText?: string;
 		/** The target word to show on loss (set by caller, who knows the answer) */
 		lostWord?: string;
+		/** Color for locked tiles */
+		lockedColor?: 'blue' | 'purple';
 	}
 
 	let {
@@ -59,7 +61,8 @@
 		winMessage = '',
 		lostMessage = '',
 		continueText,
-		lostWord = ''
+		lostWord = '',
+		lockedColor = 'blue'
 	}: Props = $props();
 
 	let currentInput = $state<string[]>([]);
@@ -188,6 +191,13 @@
 		submitting = false;
 		revealingRow = -1;
 	}
+
+	/** Trigger the lost overlay externally (e.g. when timer expires) */
+	export function showLoss(word: string) {
+		overlayWord = word;
+		showLostOverlay = true;
+	}
+
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -202,6 +212,7 @@
 		{shakeRow}
 		{revealingRow}
 		{activeInputIndex}
+		{lockedColor}
 	/>
 </div>
 

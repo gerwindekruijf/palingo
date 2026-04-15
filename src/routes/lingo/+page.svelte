@@ -53,14 +53,24 @@
 
 	let target = $derived(data.words[roundNumber - 1] ?? '');
 
-	const bonusLockedPositions = $derived<Record<number, string>>(
-		phase === 'bonus' && bonusLetter && bonusPosition !== null
-			? { [bonusPosition]: bonusLetter }
-			: {}
-	);
+	const bonusLockedPositions = $derived.by<Record<number, string>>(() => {
+		if (phase !== 'bonus') return {};
+		const locked: Record<number, string> = {};
+		// Lock all correct (green) positions from previous guesses
+		for (const guess of gameState.guesses) {
+			for (let i = 0; i < guess.length; i++) {
+				if (guess[i].state === 'correct') locked[i] = guess[i].letter;
+			}
+		}
+		// Lock the bonus hint letter
+		if (bonusLetter && bonusPosition !== null) {
+			locked[bonusPosition] = bonusLetter;
+		}
+		return locked;
+	});
 
 	const totalBoardRows = $derived(
-		phase === 'bonus' && !bonusCountdown ? LINGO_MAX_ATTEMPTS + 1 : LINGO_MAX_ATTEMPTS
+		phase === 'bonus' && !bonusCountdown ? gameState.guesses.length + 1 : LINGO_MAX_ATTEMPTS
 	);
 
 	const markedSet = $derived(new Set(markedNumbers.map((m) => m.number)));
@@ -116,18 +126,17 @@
 	function enterBonusPhase(state: GameState) {
 		timerActive = false;
 		bonusCountdown = true;
-		message = t.bonusRound;
 
 		const bonus = pickBonusPosition(target, state);
 		bonusLetter = bonus?.letter ?? null;
 		bonusPosition = bonus?.position ?? null;
 
-		gameState = { ...state, status: 'playing', maxAttempts: LINGO_MAX_ATTEMPTS + 1 };
+		gameState = { ...state, status: 'playing', maxAttempts: state.guesses.length + 1 };
 		phase = 'bonus';
 
 		setTimeout(() => {
 			bonusCountdown = false;
-			message = '';
+			wordGameBoard?.resetInput();
 			startTimer(TIMER_SECONDS_BONUS, TIMER_SECONDS_BONUS + TIMER_SECONDS_MAX);
 		}, BONUS_COUNTDOWN_MS);
 	}
@@ -165,16 +174,12 @@
 	function handleTimerExpire() {
 		timerActive = false;
 		if (phase === 'bonus') {
-			advanceToNextRound();
+			// Bonus time's up — show lost overlay, then advance
+			gameState = { ...gameState, status: 'lost' };
+			wordGameBoard?.showLoss(target);
 		} else {
-			const totalAttempts = gameState.guesses.length + 1;
-			if (totalAttempts >= LINGO_MAX_ATTEMPTS) {
-				enterBonusPhase(gameState);
-			} else {
-				wordGameBoard?.resetInput();
-				// Reset timer for next attempt (no bonus for missed)
-				startTimer(timerRemaining, TIMER_SECONDS_MAX);
-			}
+			// Guessing time's up — enter bonus round
+			enterBonusPhase(gameState);
 		}
 	}
 
@@ -411,3 +416,15 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Bonus countdown overlay -->
+{#if bonusCountdown}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+		<div class="bg-white rounded-2xl shadow-2xl px-10 py-8 flex flex-col items-center gap-3">
+			<p class="text-4xl font-black tracking-widest uppercase text-orange-500">
+				{t.bonusRound}
+			</p>
+			<p class="text-sm text-gray-500">{t.messageBonusRound}</p>
+		</div>
+	</div>
+{/if}

@@ -15,9 +15,11 @@
 		revealingRow?: number;
 		/** Position of the cursor within the current row (-1 = none) */
 		activeInputIndex?: number;
+		/** Color for locked tiles */
+		lockedColor?: 'blue' | 'purple';
 	}
 
-	let { gameState, currentInput = [], firstLetterLocked, lockedPositions = {}, totalRows, shakeRow = false, revealingRow = -1, activeInputIndex = -1 }: Props = $props();
+	let { gameState, currentInput = [], firstLetterLocked, lockedPositions = {}, totalRows, shakeRow = false, revealingRow = -1, activeInputIndex = -1, lockedColor = 'blue' }: Props = $props();
 
 	const rowCount = $derived(totalRows ?? gameState.maxAttempts);
 </script>
@@ -36,6 +38,7 @@
 			shake={isCurrentRow && shakeRow}
 			animateReveal={rowIndex === revealingRow}
 			cursorIndex={isCurrentRow ? activeInputIndex : -1}
+			{lockedColor}
 		/>
 	{/each}
 </div>

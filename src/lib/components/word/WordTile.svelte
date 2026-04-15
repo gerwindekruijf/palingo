@@ -9,6 +9,8 @@
 		size?: 'sm' | 'md' | 'lg';
 		error?: boolean;
 		cursor?: boolean;
+		locked?: boolean;
+		lockedColor?: 'blue' | 'purple';
 	}
 
 	let {
@@ -18,16 +20,26 @@
 		flipping = false,
 		size = 'md',
 		error = false,
-		cursor = false
+		cursor = false,
+		locked = false,
+		lockedColor = 'blue'
 	}: Props = $props();
 
 	const sizeClass = { sm: 'w-10 h-10 text-lg', md: 'w-14 h-14 text-2xl', lg: 'w-16 h-16 text-3xl' };
+
+	const lockedColorClass: Record<string, string> = {
+		blue: 'border-2 border-blue-500 bg-blue-500 text-white',
+		purple: 'border-2 border-purple-600 bg-purple-600 text-white'
+	};
 
 	const stateClass = $derived.by(() => {
 		if (error && !revealed) {
 			return letter
 				? 'border-2 border-red-500 bg-red-500 text-white'
 				: 'border-2 border-red-400 bg-red-100';
+		}
+		if (locked && letter) {
+			return lockedColorClass[lockedColor] ?? lockedColorClass.blue;
 		}
 		if (!revealed || !letter) {
 			return letter

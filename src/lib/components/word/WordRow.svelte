@@ -15,6 +15,8 @@
 		animateReveal?: boolean;
 		/** Position of the blinking cursor in the current row (-1 = none) */
 		cursorIndex?: number;
+		/** Color for locked tiles */
+		lockedColor?: 'blue' | 'purple';
 	}
 
 	let {
@@ -26,7 +28,8 @@
 		lockedPositions = {},
 		shake = false,
 		animateReveal = false,
-		cursorIndex = -1
+		cursorIndex = -1,
+		lockedColor = 'blue'
 	}: Props = $props();
 
 	// Build a merged locked map: pos 0 from firstLetterLocked + any extras
@@ -106,6 +109,8 @@
 			flipping={tileFlipping[i] ?? false}
 			error={shake && isCurrentRow}
 			cursor={i === cursorTileIndex}
+			locked={isCurrentRow && i in locked}
+			{lockedColor}
 		/>
 	{/each}
 </div>
